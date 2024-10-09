@@ -17,7 +17,7 @@ import torchvision.transforms as transforms
 from pcbm.learn_concepts_multimodal import *
 from pcbm.data import get_dataset
 from pcbm.concepts import ConceptBank
-from pcbm.models import PosthocLinearCBM, get_model
+from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
 from pcbm.training_tools import load_or_compute_projections
 
 @dataclass

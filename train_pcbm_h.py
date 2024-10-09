@@ -10,15 +10,17 @@ from torch.utils.data import DataLoader, TensorDataset
 from scipy.special import softmax
 from sklearn.metrics import roc_auc_score
 
-from data import get_dataset
-from concepts import ConceptBank
-from models import PosthocLinearCBM, PosthocHybridCBM, get_model
-from training_tools import load_or_compute_projections, AverageMeter, MetricComputer
+from pcbm.data import get_dataset
+from pcbm.concepts import ConceptBank
+from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
+from pcbm.training_tools import load_or_compute_projections, AverageMeter, MetricComputer
 
 
 
 def config():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset-path", required=True, type=str, help="Path to the dataset")
+    parser.add_argument("--backbone-ckpt", required=True, type=str, help="Path to the backbone ckpt")
     parser.add_argument("--out-dir", required=True, type=str, help="Output folder")
     parser.add_argument("--pcbm-path", required=True, type=str, help="Trained PCBM module.")
     parser.add_argument("--concept-bank", required=True, type=str, help="Path to the concept bank.")
@@ -26,6 +28,7 @@ def config():
     parser.add_argument("--batch-size", default=64, type=int)
     parser.add_argument("--dataset", default="cub", type=str)
     parser.add_argument("--seed", default=42, type=int, help="Random seed")
+    parser.add_argument("--num-workers", default=4, type=int)
     parser.add_argument("--num-epochs", default=20, type=int)
     parser.add_argument("--lr", default=0.01, type=float)
     parser.add_argument("--l2-penalty", default=0.001, type=float)
@@ -95,14 +98,14 @@ def train_hybrid(args, train_loader, val_loader, posthoc_layer, optimizer, num_c
 
 
 def main(args, backbone, preprocess):
-    train_loader, test_loader, idx_to_class, classes = get_dataset(args, preprocess)
+    train_loader, test_loader, idx_to_class, classes = get_dataset(args, preprocess, args.dataset_path)
     num_classes = len(classes)
     
     hybrid_model_path = args.pcbm_path.replace("pcbm_", "pcbm-hybrid_")
     run_info_file = hybrid_model_path.replace("pcbm", "run_info-pcbm")
     run_info_file = run_info_file.replace(".ckpt", ".pkl")
     
-    run_info_file = os.path.join(args.out_dir, run_info_file)
+    # run_info_file = os.path.join(args.out_dir, run_info_file)
     
     # We use the precomputed embeddings and projections.
     train_embs, _, train_lbls, test_embs, _, test_lbls = load_or_compute_projections(args, backbone, posthoc_layer, train_loader, test_loader)
@@ -135,7 +138,7 @@ if __name__ == "__main__":
     posthoc_layer = torch.load(args.pcbm_path)
     posthoc_layer = posthoc_layer.eval()
     args.backbone_name = posthoc_layer.backbone_name
-    backbone, preprocess = get_model(args, backbone_name=args.backbone_name)
+    backbone, preprocess = get_model(args, backbone_name=args.backbone_name, download_root=args.backbone_ckpt)
     backbone = backbone.to(args.device)
     backbone.eval()
     main(args, backbone, preprocess)

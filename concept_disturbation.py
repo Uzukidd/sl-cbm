@@ -39,10 +39,17 @@ def config():
     parser.add_argument("--batch-size", default=64, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
     parser.add_argument("--cocnept-selecting-func", required=True, type=str)
+    parser.add_argument("--attack-func", required=True, type=str)
+    parser.add_argument("--epsilon", required=True, type=float)
+
+
     return parser.parse_args()
 
 
 class concept_selecting_funcs:
+    
+    TOPK_WEIGHTS:Tuple[torch.Tensor,
+                       torch.Tensor]= None
     
     @staticmethod
     def weights_concept_selecting(input_context:model_result, 
@@ -50,14 +57,20 @@ class concept_selecting_funcs:
                                   K:int = 5):
         B, F = input_context.concept_projs.size(0), input_context.concept_projs.size(1) 
         
-        weights = model_context.posthoc_layer.get_linear_weights() # [C, F]
-        topK_values, topk_indices = torch.topk(weights, K, dim=1)  # [C, K]
+        if __class__.TOPK_WEIGHTS is None:
+            weights = model_context.posthoc_layer.get_linear_weights() # [C, F]
+            topK_values, topk_indices = torch.topk(weights, K, dim=1)  # [C, K]
+            __class__.TOPK_WEIGHTS = topK_values.detach().clone(), topk_indices.detach().clone()
+            assert topK_values.greater(0.0).all(), "Negative weights exist."
+            
+        topK_values, topk_indices = __class__.TOPK_WEIGHTS
         batch_W = topK_values[input_context.batch_Y, :] #[B, F]
         batch_index = topk_indices[input_context.batch_Y, :]
         batch_indices = torch.arange(B)\
             .view(B, 1)\
             .expand(B, K)
         select_concept_projs = input_context.concept_projs[batch_indices, batch_index]
+        
         
         return select_concept_projs.mul(batch_W)
     
@@ -95,18 +108,35 @@ def cocnept_disturbate(args, batch_X:torch.Tensor,
                             batch_Y:torch.Tensor, 
                             model_context:model_pipeline,
                             concept_selecting_func:Callable[..., torch.Tensor],
+                            attack_func:Callable[..., torch.Tensor],
                             eps:float = 0.01):
-    batch_X = batch_X.clone().detach().requires_grad_(True)
-    batch_X_normalized = model_context.normalization(batch_X)
-    embeddings = model_context.backbone.encode_image(batch_X_normalized)
-    concept_projs = model_context.posthoc_layer.compute_dist(embeddings)
+    
+    attack_endflag = False
+    index = 0
+    original_X = batch_X
+    while(not attack_endflag):
+        batch_X = batch_X.clone().detach().requires_grad_(True)
+        batch_X_normalized = model_context.normalization(batch_X)
+        embeddings = model_context.backbone.encode_image(batch_X_normalized)
+        concept_projs = model_context.posthoc_layer.compute_dist(embeddings)
         
-    concept_selecting_func(input_context = model_result(batch_X = batch_X,
-                                                        batch_Y = batch_Y,
-                                                        embeddings = embeddings,
-                                                        concept_projs = concept_projs),
-                           model_context = model_context).mean().backward()
-    batch_X = (batch_X - eps * batch_X.grad.sign()).clamp_(0.0, 1.0)
+        adversarial_loss_handle = concept_selecting_func(input_context = model_result(batch_X = batch_X,
+                                                            batch_Y = batch_Y,
+                                                            embeddings = embeddings,
+                                                            concept_projs = concept_projs),
+                            model_context = model_context)
+        
+        batch_X, attack_endflag = attack_func(attack_context = adversarial_attack_context(
+                                            index = index,
+                                            original_X = original_X,
+                                            adversarial_loss_handle = adversarial_loss_handle,
+                                            input_context = model_result(batch_X = batch_X,
+                                                            batch_Y = batch_Y,
+                                                            embeddings = embeddings,
+                                                            concept_projs = concept_projs),
+                                            model_context = model_context),
+                                            eps=args.epsilon)
+        index += 1
     
     return batch_X.detach()
 
@@ -136,43 +166,31 @@ def main(args):
             images = torch.cat((images, comparison_images), dim=3)
 
         # 使用 torchvision.utils.make_grid 将 64 张图片排列成 8x8 的网格
-        grid_img = torchvision.utils.make_grid(images, nrow=8, normalize=True)
+        grid_img = torchvision.utils.make_grid(images, nrow=2, normalize=True)
 
         # 转换为 NumPy 格式以便用 matplotlib 显示
         plt.imshow(grid_img.permute(1, 2, 0))  # 转换为 [H, W, C]
         plt.axis('off')  # 隐藏坐标轴
         plt.show()
-        
+    
+    original_Xs = []
+    adversarial_Xs = []
     accuracy_ori = []
     accuracy_adv = []
 
-    for idx, data in tqdm(enumerate(train_loader), total=train_loader.__len__()):
-        # print(data.__len__())
-        # print(f"x: {data[0].size()}")
-        # print(f"y: {data[1].size()}")
+    for idx, data in tqdm(enumerate(train_loader), 
+                          total=train_loader.__len__()):
         batch_X, batch_Y = data
         batch_X = batch_X.to(args.device)
         batch_Y = batch_Y.to(args.device)
         
-        # batch_X_normalized = normalization(batch_X)
-        # embeddings = backbone.encode_image(batch_X_normalized)
-        # projs = posthoc_layer.compute_dist(embeddings)
-        # predicted_Y = posthoc_layer.forward_projs(projs)
-        # accuracy = (predicted_Y.argmax(1) == batch_Y).float().mean().item()
-        
-        # _, topk_indices = torch.topk(projs, 5, dim=1)
-        # topk_concept = [[posthoc_layer.names[idx] for idx in row] for row in topk_indices]
-        
-        # get_topK_concept_logit(args, batch_X,
-        #                         batch_Y, 
-        #                         normalization, 
-        #                         backbone, 
-        #                         posthoc_layer)
+
 
         batch_X_disturb = cocnept_disturbate(args, batch_X, 
                                 batch_Y,
                                 model_context,
-                                concept_selecting_func=getattr(concept_selecting_funcs, args.cocnept_selecting_func))
+                                concept_selecting_func=getattr(concept_selecting_funcs, args.cocnept_selecting_func),
+                                attack_func=getattr(adversarial_attack_funcs, args.attack_func))
         
         accuracy_ori.append(evaluzate_accuracy(args, batch_X,
                                 batch_Y, 
@@ -181,19 +199,32 @@ def main(args):
                                 batch_Y, 
                                 model_context))
         
+        original_Xs.append(batch_X.detach().cpu())
+        adversarial_Xs.append(batch_X_disturb.detach().cpu())
+        
+        # get_topK_concept_logit(args, batch_X,
+        #                 batch_Y, 
+        #                 model_context,)
+        
         # get_topK_concept_logit(args, batch_X_disturb,
         #                         batch_Y, 
-        #                         normalization, 
-        #                         backbone, 
-        #                         posthoc_layer)
-        
-        # print(f"embeddings: {embeddings.size()}")
-        # print(f"projections: {projs.size()}")
-        # print(f"predicted_Y: {predicted_Y.size()}")
-        # print(f"accuracy: {accuracy}")
+        #                         model_context,)
+
+        # evaluate_adversarial_sample(ori_adv_pair(
+        #     original_X=batch_X,
+        #     adversarial_X=batch_X_disturb,
+        # ))
         # show_image(batch_X.detach().cpu(), batch_X_disturb.detach().cpu())
         # import pdb; pdb.set_trace()
-        
+    
+    original_Xs = torch.concat(original_Xs, dim = 0)
+    adversarial_Xs = torch.concat(adversarial_Xs, dim = 0)
+    
+    evaluate_adversarial_sample(ori_adv_pair(
+        original_X=original_Xs,
+        adversarial_X=adversarial_Xs,
+    ))
+
     print(f"accuracy_ori: {np.array(accuracy_ori).mean()}")
     print(f"accuracy_adv: {np.array(accuracy_adv).mean()}")
     
