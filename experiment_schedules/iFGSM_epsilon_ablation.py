@@ -9,7 +9,7 @@ from costants import FGSM_EPS
 def main():
     out_data = []
     for eps in tqdm(FGSM_EPS):
-        result = subprocess.run([f'CUDA_VISIBLE_DEVICES=1 bash ../scripts/CIFAR_10/FGSM_concept_disturbate.sh {eps}'], shell=True, capture_output=True, text=True)
+        result = subprocess.run([f'CUDA_VISIBLE_DEVICES=1 bash ../scripts/iFGSM_concept_disturbate.sh {eps}'], shell=True, capture_output=True, text=True)
         
         output_dict = {}
         lines = result.stdout.strip().split("\n")
@@ -29,12 +29,12 @@ def main():
         y = np.array(y)
         plt.clf()
         sns.lineplot(x=x, y=y)
-        plt.title(f'FGSM_eps_ablation_plot_{y_name}')
+        plt.title(f'iFGSM_eps_ablation_plot_{y_name}')
         plt.xlabel('$\\epsilon$')
         plt.ylabel(y_name)
 
         # 保存图表到本地
-        plt.savefig(f'FGSM_eps_ablation_plot_{y_name}.png')
+        plt.savefig(f'iFGSM_eps_ablation_plot_{y_name}.png')
     
 if __name__ == "__main__":
     main()

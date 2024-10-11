@@ -24,7 +24,6 @@ from attack_utils import *
 def config():
     parser = argparse.ArgumentParser()
     parser.add_argument("--universal-seed", default=2024, type=int, help="Universal random seed")
-    parser.add_argument("--dataset-path", required=True, type=str, help="Path to the dataset")
     
     parser.add_argument("--backbone-ckpt", required=True, type=str, help="Path to the backbone ckpt")
     parser.add_argument("--backbone-name", default="clip:RN50", type=str)
@@ -116,24 +115,24 @@ def cocnept_disturbate(args, batch_X:torch.Tensor,
     original_X = batch_X
     while(not attack_endflag):
         batch_X = batch_X.clone().detach().requires_grad_(True)
-        batch_X_normalized = model_context.normalization(batch_X)
+        batch_X_normalized = model_context.normalizer(batch_X)
         embeddings = model_context.backbone.encode_image(batch_X_normalized)
         concept_projs = model_context.posthoc_layer.compute_dist(embeddings)
         
-        adversarial_loss_handle = concept_selecting_func(input_context = model_result(batch_X = batch_X,
-                                                            batch_Y = batch_Y,
-                                                            embeddings = embeddings,
-                                                            concept_projs = concept_projs),
-                            model_context = model_context)
+        input_context = model_result(batch_X = batch_X,
+                                     batch_Y = batch_Y,
+                                     embeddings = embeddings,
+                                     concept_projs = concept_projs)
+        
+        adversarial_loss_handle = concept_selecting_func(input_context = input_context,
+                                    model_context = model_context,
+                                    K = 5)
         
         batch_X, attack_endflag = attack_func(attack_context = adversarial_attack_context(
                                             index = index,
                                             original_X = original_X,
                                             adversarial_loss_handle = adversarial_loss_handle,
-                                            input_context = model_result(batch_X = batch_X,
-                                                            batch_Y = batch_Y,
-                                                            embeddings = embeddings,
-                                                            concept_projs = concept_projs),
+                                            input_context = input_context,
                                             model_context = model_context),
                                             eps=args.epsilon)
         index += 1
@@ -145,7 +144,7 @@ def main(args):
     set_random_seed(args.universal_seed)
     concept_bank = load_concept_bank(args)
     backbone, preprocess = load_backbone(args)
-    normalization = transforms.Compose(preprocess.transforms[-1:])
+    normalizer = transforms.Compose(preprocess.transforms[-1:])
     preprocess = transforms.Compose(preprocess.transforms[:-1])
     
     posthoc_layer = load_pcbm(args)
@@ -154,7 +153,7 @@ def main(args):
     model_context = model_pipeline(concept_bank = concept_bank, 
                    posthoc_layer = posthoc_layer, 
                    preprocess = preprocess, 
-                   normalization = normalization, 
+                   normalizer = normalizer, 
                    backbone = backbone)
     
     def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):
@@ -174,17 +173,19 @@ def main(args):
         plt.show()
     
     original_Xs = []
+    batch_Ys = []
     adversarial_Xs = []
     accuracy_ori = []
     accuracy_adv = []
 
-    for idx, data in tqdm(enumerate(train_loader), 
-                          total=train_loader.__len__()):
+    for idx, data in tqdm(enumerate(test_loader), 
+                          total=test_loader.__len__()):
         batch_X, batch_Y = data
+        # if not (batch_Y == class_to_idx["bird"]).any():
+        #     continue
+        
         batch_X = batch_X.to(args.device)
         batch_Y = batch_Y.to(args.device)
-        
-
 
         batch_X_disturb = cocnept_disturbate(args, batch_X, 
                                 batch_Y,
@@ -199,8 +200,9 @@ def main(args):
                                 batch_Y, 
                                 model_context))
         
-        original_Xs.append(batch_X.detach().cpu())
-        adversarial_Xs.append(batch_X_disturb.detach().cpu())
+        # original_Xs.append(batch_X.detach().cpu())
+        # batch_Ys.append(batch_Y.detach().cpu())
+        # adversarial_Xs.append(batch_X_disturb.detach().cpu())
         
         # get_topK_concept_logit(args, batch_X,
         #                 batch_Y, 
@@ -214,16 +216,22 @@ def main(args):
         #     original_X=batch_X,
         #     adversarial_X=batch_X_disturb,
         # ))
+        # print(model_context.posthoc_layer.analyze_classifier(k=5))
+        # print(((batch_X - batch_X_disturb).abs().detach().cpu() * 5).max())
+        # show_image((batch_X - batch_X_disturb).abs().detach().cpu() * 5 , batch_X.detach().cpu())
+        # show_image(batch_X.detach().cpu())
         # show_image(batch_X.detach().cpu(), batch_X_disturb.detach().cpu())
         # import pdb; pdb.set_trace()
     
-    original_Xs = torch.concat(original_Xs, dim = 0)
-    adversarial_Xs = torch.concat(adversarial_Xs, dim = 0)
+    # original_Xs = torch.concat(original_Xs, dim = 0)
+    # batch_Ys = torch.concat(batch_Ys, dim = 0)
+    # adversarial_Xs = torch.concat(adversarial_Xs, dim = 0)
     
-    evaluate_adversarial_sample(ori_adv_pair(
-        original_X=original_Xs,
-        adversarial_X=adversarial_Xs,
-    ))
+    # evaluate_adversarial_sample(ori_adv_pair(
+    #     original_X=(adversarial_Xs - original_Xs),
+    #     # adversarial_X=adversarial_Xs,
+    # ))
+
 
     print(f"accuracy_ori: {np.array(accuracy_ori).mean()}")
     print(f"accuracy_adv: {np.array(accuracy_adv).mean()}")
