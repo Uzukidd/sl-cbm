@@ -6,6 +6,7 @@ import json
 from tqdm import tqdm
 from typing import Tuple, Callable, Union, Optional
 from dataclasses import dataclass
+from functools import partial
 
 
 import clip
@@ -20,12 +21,8 @@ from pcbm.concepts import ConceptBank
 from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
 from pcbm.training_tools import load_or_compute_projections
 
+from constants import dataset_cosntants
 
-class dataset_cosntants:
-    CIFAR10_DIR:str = "/home/ksas/Public/datasets/cifar10_concept_bank"
-    CIFAR100_DIR:str = "/home/ksas/Public/datasets/cifar100_concept_bank"
-    CUB_DATA_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/CUB_200_2011"
-    CUB_PROCESSED_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/class_attr_data_10"
 
 @dataclass
 class model_result:
@@ -52,6 +49,22 @@ def set_random_seed(seed):
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):
+    import torch
+    import torchvision
+    import matplotlib.pyplot as plt
+    
+    if comparison_images is not None:
+        images = torch.cat((images, comparison_images), dim=3)
+
+    # 使用 torchvision.utils.make_grid 将 64 张图片排列成 8x8 的网格
+    grid_img = torchvision.utils.make_grid(images, nrow=2, normalize=True)
+
+    # 转换为 NumPy 格式以便用 matplotlib 显示
+    plt.imshow(grid_img.permute(1, 2, 0))  # 转换为 [H, W, C]
+    plt.axis('off')  # 隐藏坐标轴
+    plt.show()
 
 def load_dataset(args, preprocess:transforms.Compose):
     trainset, testset = None, None
@@ -91,11 +104,11 @@ def load_dataset(args, preprocess:transforms.Compose):
         TEST_PKL = os.path.join(dataset_cosntants.CUB_PROCESSED_DIR, "test.pkl")
         train_loader = load_cub_data([TRAIN_PKL], use_attr=False, no_img=False, 
             batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_cosntants.CUB_DATA_DIR, resol=224, normalizer=None,
-            n_classes=num_classes, resampling=False)
+            n_classes=num_classes, resampling=True)
 
         test_loader = load_cub_data([TEST_PKL], use_attr=False, no_img=False, 
                 batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_cosntants.CUB_DATA_DIR, resol=224, normalizer=None,
-                n_classes=num_classes, resampling=False)
+                n_classes=num_classes, resampling=True)
 
         classes = open(os.path.join(dataset_cosntants.CUB_DATA_DIR, "classes.txt")).readlines()
         classes = [a.split(".")[1].strip() for a in classes]
@@ -196,7 +209,17 @@ def load_pcbm(args) -> PosthocLinearCBM:
     # print(posthoc_layer.names)
     # print(posthoc_layer.names.__len__())
     return posthoc_layer
+
+def model_forward_wrapper(model_context:model_pipeline,):
+    def model_forward(batch_X:torch.Tensor,
+                      model_context:model_pipeline,):
+        batch_X_normalized = model_context.normalizer(batch_X)
+        embeddings = model_context.backbone.encode_image(batch_X_normalized)
+        concept_projs = model_context.posthoc_layer.compute_dist(embeddings)
         
+        return concept_projs
+    
+    return partial(model_forward, model_context = model_context)
 
 def get_topK_concept_logit(args, batch_X:torch.Tensor, 
                             batch_Y:torch.Tensor,

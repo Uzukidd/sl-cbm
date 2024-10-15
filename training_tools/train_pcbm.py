@@ -94,7 +94,7 @@ def main(args, concept_bank, backbone, preprocess):
 
     # Sorry for the model path hack. Probably i'll change this later.
     model_path = os.path.join(args.out_dir,
-                              f"pcbm_{args.dataset}__{args.backbone_name}__{conceptbank_source}__lam:{args.lam}__alpha:{args.alpha}__seed:{args.seed}.ckpt")
+                              f"pcbm_{args.dataset}__{args.backbone_name.replace('/', '_')}__{conceptbank_source}__lam:{args.lam}__alpha:{args.alpha}__seed:{args.seed}.ckpt")
     torch.save(posthoc_layer, model_path)
 
     # Again, a sad hack.. Open to suggestions

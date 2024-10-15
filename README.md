@@ -18,10 +18,18 @@ c. Use `manually_train.ipynb` to train the model (Checkpoints from [post-hoc-cbm
 
 d. Configure `scripts/CIFAR_10/iFGSM_concept_disturbate.sh` and `class dataset_cosntants` in `common_utils.py` properly
 
+## Disturbation-based method
+
 e. Run an epoch of attack by running the following command:
 
 ```
 bash scripts/CIFAR_10/iFGSM_concept_disturbate.sh 0.01
 ```
 
-cd ..
+## IG-based method
+
+e. Run an epoch of attack by running the following command:
+
+```
+bash scripts/CIFAR_10/integrated_grad_concept_interpret.sh "airplane" "landing gear"
+```

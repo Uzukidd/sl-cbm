@@ -6,16 +6,20 @@ import json
 from tqdm import tqdm
 from typing import Tuple, Callable, Union, Dict
 
-import clip
+
 import torch
 import torch.nn as nn
 from torchvision import datasets
 import torchvision.transforms as transforms
 
+import clip
+
 from pcbm.learn_concepts_multimodal import *
 from pcbm.data import get_dataset
 from pcbm.concepts import ConceptBank
 from pcbm.models import PosthocLinearCBM, get_model
+
+from captum.attr import IntegratedGradients, visualization
 
 from common_utils import *
 from attack_utils import *
@@ -155,22 +159,6 @@ def main(args):
                    preprocess = preprocess, 
                    normalizer = normalizer, 
                    backbone = backbone)
-    
-    def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):
-        import torch
-        import torchvision
-        import matplotlib.pyplot as plt
-        
-        if comparison_images is not None:
-            images = torch.cat((images, comparison_images), dim=3)
-
-        # 使用 torchvision.utils.make_grid 将 64 张图片排列成 8x8 的网格
-        grid_img = torchvision.utils.make_grid(images, nrow=2, normalize=True)
-
-        # 转换为 NumPy 格式以便用 matplotlib 显示
-        plt.imshow(grid_img.permute(1, 2, 0))  # 转换为 [H, W, C]
-        plt.axis('off')  # 隐藏坐标轴
-        plt.show()
     
     original_Xs = []
     batch_Ys = []
