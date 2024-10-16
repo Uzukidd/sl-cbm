@@ -50,22 +50,6 @@ def set_random_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):
-    import torch
-    import torchvision
-    import matplotlib.pyplot as plt
-    
-    if comparison_images is not None:
-        images = torch.cat((images, comparison_images), dim=3)
-
-    # 使用 torchvision.utils.make_grid 将 64 张图片排列成 8x8 的网格
-    grid_img = torchvision.utils.make_grid(images, nrow=2, normalize=True)
-
-    # 转换为 NumPy 格式以便用 matplotlib 显示
-    plt.imshow(grid_img.permute(1, 2, 0))  # 转换为 [H, W, C]
-    plt.axis('off')  # 隐藏坐标轴
-    plt.show()
-
 def load_dataset(args, preprocess:transforms.Compose):
     trainset, testset = None, None
     if args.dataset == "cifar10":
@@ -145,6 +129,7 @@ class ResNetBottom(nn.Module):
     def __init__(self, original_model):
         super(ResNetBottom, self).__init__()
         self.features = nn.Sequential(*list(original_model.children())[:-1])
+
     def forward(self, x):
         x = self.features(x)
         x = torch.flatten(x, 1)
@@ -221,6 +206,20 @@ def model_forward_wrapper(model_context:model_pipeline,):
     
     return partial(model_forward, model_context = model_context)
 
+def topK_concept_to_name(args, pcbm_net,
+                         batch_X:torch.Tensor,
+                         K = 5):
+    # from model_utils import PCBM_Net
+    projs = pcbm_net(batch_X)
+    topk_values, topk_indices = torch.topk(projs, K, dim=1)
+    predicted_Y = pcbm_net.posthoc_layer.forward_projs(projs).argmax(1)
+
+    topk_concept = [{pcbm_net.posthoc_layer.names[idx]:round(float(val), 2) for idx, val in zip(irow, vrow)} for irow, vrow in zip(topk_indices, topk_values)]
+    classification_res = [f"{pcbm_net.posthoc_layer.idx_to_class[Y.item()]}" for Y in predicted_Y]
+    print(f"top (K = {K}) concepts: {json.dumps(topk_concept, indent=4)}")
+    print(f"classification result: {json.dumps(classification_res, indent=4)}")
+
+
 def get_topK_concept_logit(args, batch_X:torch.Tensor, 
                             batch_Y:torch.Tensor,
                             model_context:model_pipeline,
@@ -232,12 +231,13 @@ def get_topK_concept_logit(args, batch_X:torch.Tensor,
     predicted_Y = model_context.posthoc_layer.forward_projs(projs)
     accuracy = (predicted_Y.argmax(1) == batch_Y).float().mean().item()
     
-    topk_values, topk_indices = torch.topk(projs, 5, dim=1)
+    topk_values, topk_indices = torch.topk(projs, K, dim=1)
     topk_concept = [{model_context.posthoc_layer.names[idx]:round(float(val), 2) for idx, val in zip(irow, vrow)} for irow, vrow in zip(topk_indices, topk_values)]
     classification_res = [f"{model_context.posthoc_layer.idx_to_class[Y.item()]} -> {model_context.posthoc_layer.idx_to_class[Y_hat.item()]}" for Y, Y_hat in zip(batch_Y, predicted_Y.argmax(1))]
     print(f"top (K = {K}) concepts: {json.dumps(topk_concept, indent=4)}")
     print(f"classification result: {json.dumps(classification_res, indent=4)}")
     print(f"accuracy: {accuracy}")
+
 
 def evaluzate_accuracy(args, batch_X:torch.Tensor, 
                             batch_Y:torch.Tensor,
