@@ -1,5 +1,8 @@
 import torch
 import numpy as np
+import os
+from PIL import Image
+
 
 def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):
     import torchvision
@@ -28,18 +31,30 @@ def getAttMap(img, attn_map, blur=True):
 
     if blur:
         attn_map = filters.gaussian_filter(attn_map, 0.02*max(img.shape[:2]))
+    # pos_mask = attn_map <= 0
     attn_map = normalize(attn_map)
+    # attn_map[pos_mask] = 0
     cmap = plt.get_cmap('jet')
     attn_map_c = np.delete(cmap(attn_map), 3, 2)
     attn_map = 1*(1-attn_map**0.7).reshape(attn_map.shape + (1,))*img + \
             (attn_map**0.7).reshape(attn_map.shape+(1,)) * attn_map_c
     return attn_map
 
-def viz_attn(img, attn_map, blur=True):
+def viz_attn(img:np.ndarray, attn_map:np.ndarray, blur=True, prefix:str="", save_to:str=None):
     import matplotlib.pyplot as plt
-    _, axes = plt.subplots(1, 2, figsize=(10, 5))
-    axes[0].imshow(img)
-    axes[1].imshow(getAttMap(img, attn_map, blur))
-    for ax in axes:
-        ax.axis("off")
-    plt.show()
+    attn_map = getAttMap(img, attn_map, blur)
+
+    if save_to is not None:
+        os.makedirs(save_to, exist_ok=True)
+        img_pil = Image.fromarray((img * 255).astype(np.uint8))
+        img_pil.save(os.path.join(save_to, f"{prefix}-original_image.jpg"))
+        
+        attn_map_pil = Image.fromarray((attn_map * 255).astype(np.uint8))
+        attn_map_pil.save(os.path.join(save_to, f"{prefix}-attn_image.jpg"))
+    else:
+        _, axes = plt.subplots(1, 2, figsize=(10, 5))
+        axes[0].imshow(img)
+        axes[1].imshow(attn_map)
+        for ax in axes:
+            ax.axis("off")
+        plt.show()

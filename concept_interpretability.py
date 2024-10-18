@@ -4,6 +4,7 @@ import clip.model
 import numpy as np
 import pickle as pkl
 import json
+import time
 from tqdm import tqdm
 from typing import Tuple, Callable, Union, Dict
 
@@ -22,6 +23,7 @@ from pcbm.models import PosthocLinearCBM, get_model
 
 from captum.attr import visualization, GradientAttribution, LayerAttribution
 
+from constants import *
 from common_utils import *
 from attack_utils import *
 from model_utils import *
@@ -30,7 +32,7 @@ from visual_utils import *
 
 def config():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--universal-seed", default=24, type=int, help="Universal random seed")
+    parser.add_argument("--universal-seed", default=int(time.time()), type=int, help="Universal random seed")
     
     parser.add_argument("--backbone-ckpt", required=True, type=str, help="Path to the backbone ckpt")
     parser.add_argument("--backbone-name", default="clip:RN50", type=str)
@@ -46,6 +48,9 @@ def config():
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--batch-size", default=1, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
+    
+    parser.add_argument('--save-100-local', action='store_true')
+
 
     return parser.parse_args()
 
@@ -92,6 +97,9 @@ class model_explain_algorithm_forward:
     def integrated_gradient(batch_X:torch.Tensor,
                             explain_algorithm:GradientAttribution,
                             target:Union[torch.Tensor|int]):
+        if isinstance(target, torch.Tensor):
+            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
+
         attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
         return attributions
     
@@ -99,6 +107,9 @@ class model_explain_algorithm_forward:
     def guided_grad_cam(batch_X:torch.Tensor,
                             explain_algorithm:GradientAttribution,
                             target:Union[torch.Tensor|int]):
+        if isinstance(target, torch.Tensor):
+            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
+
         attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
         return attributions
     
@@ -106,10 +117,31 @@ class model_explain_algorithm_forward:
     def layer_grad_cam(batch_X:torch.Tensor,
                             explain_algorithm:GradientAttribution,
                             target:Union[torch.Tensor|int]):
+        if isinstance(target, torch.Tensor):
+            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
+
         attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
         upsampled_attr = LayerAttribution.interpolate(attributions, batch_X.size()[-2:], interpolate_mode="bicubic")
         return upsampled_attr
 
+
+class concept_select_func:
+    @staticmethod
+    def cifar10(model_context: model_pipeline,
+                concept_target:str):
+        targeted_concept_idx = model_context.concept_bank.concept_names.index(concept_target)
+        return targeted_concept_idx
+    
+    @staticmethod
+    def cub(model_context: model_pipeline,
+                concept_target:str):
+        if hasattr(CUB_features, concept_target):
+            # trick to get the device of a nn.Module
+            return torch.arange(getattr(CUB_features, concept_target)[0], getattr(CUB_features, concept_target)[1] + 1)\
+                .to(next(model_context.posthoc_layer.parameters()).device)
+        
+        return model_context.concept_bank.concept_names.index(int(concept_target))
+    
 def main(args):
     set_random_seed(args.universal_seed)
     concept_bank = load_concept_bank(args)
@@ -131,16 +163,12 @@ def main(args):
                                                                   posthoc_concept_net = posthoc_concept_net)
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
     
-    try:
-        targeted_concept_idx = concept_bank.concept_names.index(args.concept_target)
-    except:
-        targeted_concept_idx = concept_bank.concept_names.index(int(args.concept_target))
-        
+    targeted_concept_idx = getattr(concept_select_func, args.dataset)(model_context, args.concept_target)
     print(targeted_concept_idx)
     
-    
-    for idx, data in tqdm(enumerate(train_loader), 
-                          total=train_loader.__len__()):
+    count = 0
+    for idx, data in tqdm(enumerate(test_loader), 
+                          total=test_loader.__len__()):
         batch_X, batch_Y = data
         batch_X:torch.Tensor = batch_X.to(args.device)
         batch_Y:torch.Tensor = batch_Y.to(args.device)
@@ -160,25 +188,60 @@ def main(args):
                                                               explain_algorithm=explain_algorithm,
                                                               target=targeted_concept_idx)
         
-        
-        for i in range(batch_Y.size(0)):
-            print(f"ground truth: {idx_to_class[batch_Y[i].item()]}")
-        topK_concept_to_name(args, posthoc_concept_net, batch_X)
-        viz_attn(batch_X.squeeze().permute((1, 2, 0)).detach().cpu().numpy(),
-                 attributions.squeeze(0).mean(0).detach().cpu().numpy())
-        # _ = visualization.visualize_image_attr_multiple(attributions.squeeze().permute((1, 2, 0)).detach().cpu().numpy(), 
-        #                                     batch_X.squeeze().permute((1, 2, 0)).detach().cpu().numpy(), 
-        #                                     signs=["all", 
-        #                                            "positive",
-        #                                            "positive",
-        #                                            "positive",
-        #                                            "positive"],
-        #                                     titles=[None,
-        #                                             None,
-        #                                             f"{idx_to_class[batch_Y[i].item()]}-attributions: {args.concept_target}",
-        #                                             None,
-        #                                             None],
-        #                                     methods=["original_image", "heat_map", "blended_heat_map", "masked_image", "alpha_scaling"],)
+
+        if args.save_100_local:
+            if count == 100:
+                break
+            viz_attn(batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(),
+                    attributions.max(0)[0].sum(0).detach().cpu().numpy(),
+                    blur=True,
+                    prefix=f"{idx:03d}",
+                    save_to=f"data/{args.explain_method}/{args.concept_target}_images")
+            # print(attributions)
+            try:
+                figure, axis = visualization.visualize_image_attr_multiple(attributions.max(0)[0].permute((1, 2, 0)).detach().cpu().numpy(), 
+                                                    batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(), 
+                                                    signs=["all", 
+                                                        "positive",
+                                                        "positive",
+                                                        "positive",
+                                                        "positive"],
+                                                    titles=[None,
+                                                            None,
+                                                            f"{idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
+                                                            None,
+                                                            None],
+                                                    methods=["original_image", "heat_map", "blended_heat_map", "masked_image", "alpha_scaling"],
+                                                    use_pyplot=False)
+                figure.savefig(f'data/{args.explain_method}/{args.concept_target}_images/{idx:03d}-captum-image.jpg', format='jpg', dpi=300)
+            except:
+                pass
+               
+            count += 1
+
+        else:
+            for i in range(batch_Y.size(0)):
+                print(f"ground truth: {idx_to_class[batch_Y[i].item()]}")
+            topK_concept_to_name(args, posthoc_concept_net, batch_X)
+            # viz_attn(batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(),
+            #         attributions.max(0)[0].mean(0).detach().cpu().numpy(),
+            #         blur=True,
+            #         save_to=None)
+            figure, axis = visualization.visualize_image_attr_multiple(attributions.max(0).permute((1, 2, 0)).detach().cpu().numpy(), 
+                                                batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(), 
+                                                signs=["all", 
+                                                    "positive",
+                                                    "positive",
+                                                    "positive",
+                                                    "positive"],
+                                                titles=[None,
+                                                        None,
+                                                        f"{idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
+                                                        None,
+                                                        None],
+                                                methods=["original_image", "heat_map", "blended_heat_map", "masked_image", "alpha_scaling"],)
+
+
         
     
     # original_Xs = torch.concat(original_Xs, dim = 0)
@@ -192,6 +255,7 @@ def main(args):
     
 if __name__ == "__main__":
     args = config()
+    print(f"universal seed: {args.universal_seed}")
     if not torch.cuda.is_available():
         args.device = "cpu"
         print(f"GPU devices failed. Change to {args.device}")

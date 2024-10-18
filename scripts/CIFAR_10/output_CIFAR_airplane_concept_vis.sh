@@ -1,0 +1,11 @@
+bash layer_grad_cam_concept_interpret.sh "airplane" "propellers" "--save-100-local"
+bash layer_grad_cam_concept_interpret.sh "airplane" "heavier-than-air craft" "--save-100-local"
+bash layer_grad_cam_concept_interpret.sh "airplane" "fuselage" "--save-100-local"
+bash layer_grad_cam_concept_interpret.sh "airplane" "accelerator" "--save-100-local"
+bash layer_grad_cam_concept_interpret.sh "airplane" "landing gear" "--save-100-local"
+
+bash integrated_grad_concept_interpret.sh "airplane" "propellers" "--save-100-local"
+bash integrated_grad_concept_interpret.sh "airplane" "heavier-than-air craft" "--save-100-local"
+bash integrated_grad_concept_interpret.sh "airplane" "fuselage" "--save-100-local"
+bash integrated_grad_concept_interpret.sh "airplane" "accelerator" "--save-100-local"
+bash integrated_grad_concept_interpret.sh "airplane" "landing gear" "--save-100-local"
