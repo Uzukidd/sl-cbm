@@ -1,8 +1,24 @@
 import torch
 import numpy as np
 import os
+from captum.attr import visualization
 from PIL import Image
 
+from typing import Tuple
+
+def reduce_attn_as_numpy(batch_X:torch.Tensor, attributions:torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Args:
+        batch_X: [1, C, W, H]
+        attributions: [B, C, W, H]
+    
+    Returns:
+        batch_X: [W, H, C]
+        attributions: [W, H, C]
+    """
+    return batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(),\
+        attributions.max(0)[0].permute((1, 2, 0)).detach().cpu().numpy()
+                
 
 def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):
     import torchvision
@@ -40,21 +56,41 @@ def getAttMap(img, attn_map, blur=True):
             (attn_map**0.7).reshape(attn_map.shape+(1,)) * attn_map_c
     return attn_map
 
-def viz_attn(img:np.ndarray, attn_map:np.ndarray, blur=True, prefix:str="", save_to:str=None):
+def viz_attn(batch_X:torch.Tensor, attributions:torch.Tensor, blur=True, prefix:str="", save_to:str=None):
     import matplotlib.pyplot as plt
-    attn_map = getAttMap(img, attn_map, blur)
+    batch_X, attributions = reduce_attn_as_numpy(batch_X, attributions)
+    attn_map = getAttMap(batch_X, attributions.sum(2), blur)
 
     if save_to is not None:
         os.makedirs(save_to, exist_ok=True)
-        img_pil = Image.fromarray((img * 255).astype(np.uint8))
+        img_pil = Image.fromarray((batch_X * 255).astype(np.uint8))
         img_pil.save(os.path.join(save_to, f"{prefix}-original_image.jpg"))
         
         attn_map_pil = Image.fromarray((attn_map * 255).astype(np.uint8))
         attn_map_pil.save(os.path.join(save_to, f"{prefix}-attn_image.jpg"))
     else:
         _, axes = plt.subplots(1, 2, figsize=(10, 5))
-        axes[0].imshow(img)
+        axes[0].imshow(batch_X)
         axes[1].imshow(attn_map)
         for ax in axes:
             ax.axis("off")
         plt.show()
+        
+def captum_vis_attn(batch_X:torch.Tensor, attributions:torch.Tensor, title:str=None, save_to:str=None):
+    batch_X, attributions = reduce_attn_as_numpy(batch_X, attributions)
+    figure, axis = visualization.visualize_image_attr_multiple(attributions, 
+                                    batch_X, 
+                                    signs=["all", 
+                                        "positive",
+                                        "positive",
+                                        "positive",
+                                        "positive"],
+                                    titles=[None,
+                                            None,
+                                            title,
+                                            None,
+                                            None],
+                                    use_pyplot=save_to is None,
+                                    methods=["original_image", "heat_map", "blended_heat_map", "masked_image", "alpha_scaling"],)
+    if save_to is not None:
+        figure.savefig(save_to, format='jpg', dpi=300)

@@ -9,7 +9,7 @@ from tqdm import tqdm
 from typing import Tuple, Callable, Union, Dict
 
 import clip
-from clip.model import CLIP
+from clip.model import CLIP, ModifiedResNet, VisionTransformer
 
 import torch
 import torch.nn as nn
@@ -22,6 +22,7 @@ from pcbm.concepts import ConceptBank
 from pcbm.models import PosthocLinearCBM, get_model
 
 from captum.attr import visualization, GradientAttribution, LayerAttribution
+from explain_utils import layer_grad_cam_vit
 
 from constants import *
 from common_utils import *
@@ -65,9 +66,9 @@ class model_explain_algorithm_factory:
     
     @staticmethod
     def guided_grad_cam(args, 
-                        posthoc_concept_net:PCBM_Net,
-                        target_layer:str="layer4"):
+                        posthoc_concept_net:PCBM_Net):
         from captum.attr import GuidedGradCam
+        raise NotImplementedError
         guided_gradcam = GuidedGradCam(posthoc_concept_net,
                                         getattr(posthoc_concept_net.get_backbone(),
                                                 target_layer))
@@ -75,20 +76,49 @@ class model_explain_algorithm_factory:
     
     @staticmethod
     def layer_grad_cam(args, 
-                posthoc_concept_net:PCBM_Net,
-                target_layer:str="layer4"):
+                posthoc_concept_net:PCBM_Net):
         from captum.attr import LayerGradCam
         layer_grad_cam = None
         backbone = posthoc_concept_net.backbone
         if isinstance(backbone, CLIP):
-            layer_grad_cam = LayerGradCam(posthoc_concept_net,
-                                            getattr(backbone.visual,
-                                                    target_layer))
+            if isinstance(backbone.visual, ModifiedResNet):
+                layer_grad_cam = LayerGradCam(posthoc_concept_net,
+                                                getattr(backbone.visual,
+                                                        "layer4")[-1])
+            
+            # elif isinstance(backbone.visual, VisionTransformer):
+            #     image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
+            #     # print(image_attn_blocks[0].attn_probs.size())
+            #     # image_attn_blocks = backbone.visual.transformer
+            #     # image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
+            #     # print(image_attn_blocks)
+            #     last_blocks = image_attn_blocks[-2]
+            #     # print(last_blocks)
+            #     layer_grad_cam = LayerGradCam(posthoc_concept_net,
+            #                                     last_blocks)
+            #     # layer_grad_cam = layer_grad_cam_vit(posthoc_concept_net,
+            #     #                                 last_blocks)
+            
         elif isinstance(backbone, ResNetBottom):
             layer_grad_cam = LayerGradCam(posthoc_concept_net,
-                                          backbone.get_submodule("features").get_submodule("0").get_submodule("stage4"),
-                                          target_layer)
+                                          backbone.get_submodule("features").get_submodule("0").get_submodule("stage4") )
             
+        return layer_grad_cam
+    
+    @staticmethod
+    def layer_grad_cam_vit(args, 
+                posthoc_concept_net:PCBM_Net):
+        from captum.attr import LayerGradCam
+        layer_grad_cam = None
+        backbone = posthoc_concept_net.backbone
+        if isinstance(backbone, CLIP) and isinstance(backbone.visual, VisionTransformer):
+            image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
+            last_blocks = image_attn_blocks[-2]
+            layer_grad_cam = layer_grad_cam_vit(posthoc_concept_net,
+                                            last_blocks)
+        else:
+            raise NotImplementedError
+                    
         return layer_grad_cam
     
 class model_explain_algorithm_forward:
@@ -121,8 +151,24 @@ class model_explain_algorithm_forward:
             batch_X = batch_X.expand(target.size(0), -1, -1, -1)
 
         attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
+        # B = attributions.size(0)
+        # if B != batch_X.size(0):
+        #     B = attributions.size(1)
+        #     F = attributions.size(2)
+        #     _grid = int(np.round(np.sqrt(attributions.size(0) - 1)))
+        #     attributions = attributions.permute(1, 2, 0)[:, :, 1:].reshape(B, F, _grid, _grid)
+        #     print(attributions.size())
         upsampled_attr = LayerAttribution.interpolate(attributions, batch_X.size()[-2:], interpolate_mode="bicubic")
         return upsampled_attr
+    
+    @staticmethod
+    def layer_grad_cam_vit(batch_X:torch.Tensor,
+                            explain_algorithm:GradientAttribution,
+                            target:Union[torch.Tensor|int]):
+        return __class__.layer_grad_cam(batch_X = batch_X,
+                              explain_algorithm = explain_algorithm,
+                              target = target)
+
 
 
 class concept_select_func:
@@ -162,7 +208,6 @@ def main(args):
     explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(args = args, 
                                                                   posthoc_concept_net = posthoc_concept_net)
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
-    
     targeted_concept_idx = getattr(concept_select_func, args.dataset)(model_context, args.concept_target)
     print(targeted_concept_idx)
     
@@ -188,32 +233,19 @@ def main(args):
                                                               explain_algorithm=explain_algorithm,
                                                               target=targeted_concept_idx)
         
-
         if args.save_100_local:
             if count == 100:
                 break
-            viz_attn(batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(),
-                    attributions.max(0)[0].sum(0).detach().cpu().numpy(),
+            viz_attn(batch_X,
+                    attributions,
                     blur=True,
                     prefix=f"{idx:03d}",
                     save_to=f"data/{args.explain_method}/{args.concept_target}_images")
-            # print(attributions)
             try:
-                figure, axis = visualization.visualize_image_attr_multiple(attributions.max(0)[0].permute((1, 2, 0)).detach().cpu().numpy(), 
-                                                    batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(), 
-                                                    signs=["all", 
-                                                        "positive",
-                                                        "positive",
-                                                        "positive",
-                                                        "positive"],
-                                                    titles=[None,
-                                                            None,
-                                                            f"{idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
-                                                            None,
-                                                            None],
-                                                    methods=["original_image", "heat_map", "blended_heat_map", "masked_image", "alpha_scaling"],
-                                                    use_pyplot=False)
-                figure.savefig(f'data/{args.explain_method}/{args.concept_target}_images/{idx:03d}-captum-image.jpg', format='jpg', dpi=300)
+                captum_vis_attn(batch_X, 
+                                attributions, 
+                                title=f"{idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
+                                save_to=f'data/{args.explain_method}/{args.concept_target}_images/{idx:03d}-captum-image.jpg')
             except:
                 pass
                
@@ -223,23 +255,15 @@ def main(args):
             for i in range(batch_Y.size(0)):
                 print(f"ground truth: {idx_to_class[batch_Y[i].item()]}")
             topK_concept_to_name(args, posthoc_concept_net, batch_X)
-            # viz_attn(batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(),
-            #         attributions.max(0)[0].mean(0).detach().cpu().numpy(),
-            #         blur=True,
-            #         save_to=None)
-            figure, axis = visualization.visualize_image_attr_multiple(attributions.max(0).permute((1, 2, 0)).detach().cpu().numpy(), 
-                                                batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(), 
-                                                signs=["all", 
-                                                    "positive",
-                                                    "positive",
-                                                    "positive",
-                                                    "positive"],
-                                                titles=[None,
-                                                        None,
-                                                        f"{idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
-                                                        None,
-                                                        None],
-                                                methods=["original_image", "heat_map", "blended_heat_map", "masked_image", "alpha_scaling"],)
+            viz_attn(batch_X,
+                    attributions,
+                    blur=True,
+                    save_to=None)
+            captum_vis_attn(batch_X, 
+                        attributions, 
+                        title=f"{idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
+                        save_to=None)
+
 
 
         
