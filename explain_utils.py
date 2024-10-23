@@ -28,11 +28,14 @@ class layer_grad_cam_vit:
 
         output.register_hook(_store_grad)
     
-    def attribute(self, batch_X:torch.Tensor, target:Union[torch.Tensor|int]):
+    def attribute(self, batch_X:torch.Tensor, target:Union[torch.Tensor|int], additional_args:dict={}):
         self.gradients:torch.Tensor = None # [B, grid ** 2, F]
         self.activations:torch.Tensor = None # [B, grid ** 2, F]
         
-        output = self.forward_func(batch_X)
+        output = self.forward_func(batch_X, **additional_args)
+        if isinstance(output, tuple) or isinstance(output, list):
+            output = output[0]
+            
         self.forward_func.zero_grad()
         loss = output[:, target]
         loss.backward()
@@ -44,6 +47,6 @@ class layer_grad_cam_vit:
         weighted_activations = importance_weights[:, None, :] * self.activations # [B, grid ** 2, F]
         weighted_activations = weighted_activations.permute(0, 2, 1) # [B, F, grid ** 2]
         _grid = int(np.round(np.sqrt(weighted_activations.size(2))))
-        weighted_activations = weighted_activations.reshape(B, F, _grid, _grid)
+        weighted_activations = weighted_activations.reshape(B, F, _grid, _grid) # [B, F, grid, grid]
 
         return weighted_activations

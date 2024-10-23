@@ -21,7 +21,7 @@ from pcbm.concepts import ConceptBank
 from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
 from pcbm.training_tools import load_or_compute_projections
 
-from constants import dataset_cosntants
+from constants import dataset_constants
 
 
 @dataclass
@@ -53,9 +53,9 @@ def set_random_seed(seed):
 def load_dataset(args, preprocess:transforms.Compose):
     trainset, testset = None, None
     if args.dataset == "cifar10":
-        trainset = datasets.CIFAR10(root=dataset_cosntants.CIFAR10_DIR, train=True,
+        trainset = datasets.CIFAR10(root=dataset_constants.CIFAR10_DIR, train=True,
                                     download=False, transform=preprocess)
-        testset = datasets.CIFAR10(root=dataset_cosntants.CIFAR10_DIR, train=False,
+        testset = datasets.CIFAR10(root=dataset_constants.CIFAR10_DIR, train=False,
                                     download=False, transform=preprocess)
         classes = trainset.classes
         class_to_idx = {c: i for (i,c) in enumerate(classes)}
@@ -67,9 +67,9 @@ def load_dataset(args, preprocess:transforms.Compose):
     
     
     elif args.dataset == "cifar100":
-        trainset = datasets.CIFAR100(root=dataset_cosntants.CIFAR100_DIR, train=True,
+        trainset = datasets.CIFAR100(root=dataset_constants.CIFAR100_DIR, train=True,
                                     download=False, transform=preprocess)
-        testset = datasets.CIFAR100(root=dataset_cosntants.CIFAR100_DIR, train=False,
+        testset = datasets.CIFAR100(root=dataset_constants.CIFAR100_DIR, train=False,
                                     download=False, transform=preprocess)
         classes = trainset.classes
         class_to_idx = {c: i for (i,c) in enumerate(classes)}
@@ -84,17 +84,17 @@ def load_dataset(args, preprocess:transforms.Compose):
         from pcbm.data.cub import load_cub_data
         from torchvision import transforms
         num_classes = 200
-        TRAIN_PKL = os.path.join(dataset_cosntants.CUB_PROCESSED_DIR, "train.pkl")
-        TEST_PKL = os.path.join(dataset_cosntants.CUB_PROCESSED_DIR, "test.pkl")
+        TRAIN_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "train.pkl")
+        TEST_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "test.pkl")
         train_loader = load_cub_data([TRAIN_PKL], use_attr=False, no_img=False, 
-            batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_cosntants.CUB_DATA_DIR, resol=224, normalizer=None,
+            batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_constants.CUB_DATA_DIR, resol=224, normalizer=None,
             n_classes=num_classes, resampling=True)
 
         test_loader = load_cub_data([TEST_PKL], use_attr=False, no_img=False, 
-                batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_cosntants.CUB_DATA_DIR, resol=224, normalizer=None,
+                batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_constants.CUB_DATA_DIR, resol=224, normalizer=None,
                 n_classes=num_classes, resampling=True)
 
-        classes = open(os.path.join(dataset_cosntants.CUB_DATA_DIR, "classes.txt")).readlines()
+        classes = open(os.path.join(dataset_constants.CUB_DATA_DIR, "classes.txt")).readlines()
         classes = [a.split(".")[1].strip() for a in classes]
         class_to_idx = {c: i for (i,c) in enumerate(classes)}
         idx_to_class = {i: classes[i] for i in range(num_classes)}
@@ -170,6 +170,14 @@ def load_backbone(args) -> Tuple[nn.Module, transforms.Compose]:
             transforms.Normalize(cub_mean_pxs, cub_std_pxs)
             ])
         backbone = backbone.to(args.device)\
+            .eval()
+            
+    elif "open_clip" in args.backbone_name:
+        import open_clip
+        clip_backbone_name = args.backbone_name.split(":")[1]
+        backbone, _, preprocess = open_clip.create_model_and_transforms(clip_backbone_name, pretrained='openai', cache_dir="/home/ksas/Public/model_zoo/clip")
+        backbone = backbone.float()\
+            .to(args.device)\
             .eval()
     
     elif args.backbone_name.lower() == "ham10000_inception":

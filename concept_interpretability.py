@@ -113,7 +113,7 @@ class model_explain_algorithm_factory:
         backbone = posthoc_concept_net.backbone
         if isinstance(backbone, CLIP) and isinstance(backbone.visual, VisionTransformer):
             image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
-            last_blocks = image_attn_blocks[-2]
+            last_blocks = image_attn_blocks[-1].ln_1
             layer_grad_cam = layer_grad_cam_vit(posthoc_concept_net,
                                             last_blocks)
         else:
@@ -151,13 +151,6 @@ class model_explain_algorithm_forward:
             batch_X = batch_X.expand(target.size(0), -1, -1, -1)
 
         attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
-        # B = attributions.size(0)
-        # if B != batch_X.size(0):
-        #     B = attributions.size(1)
-        #     F = attributions.size(2)
-        #     _grid = int(np.round(np.sqrt(attributions.size(0) - 1)))
-        #     attributions = attributions.permute(1, 2, 0)[:, :, 1:].reshape(B, F, _grid, _grid)
-        #     print(attributions.size())
         upsampled_attr = LayerAttribution.interpolate(attributions, batch_X.size()[-2:], interpolate_mode="bicubic")
         return upsampled_attr
     
