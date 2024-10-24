@@ -10,6 +10,7 @@ from typing import Tuple, Callable, Union, Dict
 
 import clip
 from clip.model import CLIP, ModifiedResNet, VisionTransformer
+from open_clip_train.train import train_one_epoch, evaluate
 
 import torch
 import torch.nn as nn

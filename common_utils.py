@@ -50,8 +50,21 @@ def set_random_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def load_dataset(args, preprocess:transforms.Compose):
+@dataclass
+class dataset_configure:
+    dataset:str
+    batch_size:int
+    num_workers:int
+    
+def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:transforms.Compose):
     trainset, testset = None, None
+    if isinstance(args, argparse.Namespace):
+        args = dataset_configure(
+            dataset = args.dataset,
+            batch_size = args.batch_size,
+            num_workers = args.num_workers,
+        )
+    
     if args.dataset == "cifar10":
         trainset = datasets.CIFAR10(root=dataset_constants.CIFAR10_DIR, train=True,
                                     download=False, transform=preprocess)
