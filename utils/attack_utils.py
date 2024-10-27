@@ -1,4 +1,4 @@
-from common_utils import *
+from .common_utils import *
 from abc import ABC, abstractmethod
 
 @dataclass

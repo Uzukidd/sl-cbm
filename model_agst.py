@@ -17,6 +17,8 @@ import torch.nn as nn
 from torchvision import datasets
 import torchvision.transforms as transforms
 
+from autoattack import AutoAttack
+
 from pcbm.learn_concepts_multimodal import *
 from pcbm.data import get_dataset
 from pcbm.concepts import ConceptBank
@@ -24,6 +26,7 @@ from pcbm.models import PosthocLinearCBM, get_model
 
 from captum.attr import visualization, GradientAttribution, LayerAttribution
 from utils import *
+from agst import AGST
 
 
 def config():
@@ -36,11 +39,13 @@ def config():
     parser.add_argument("--concept-bank", required=True, type=str, help="Path to the concept bank")
     
     parser.add_argument("--pcbm-ckpt", required=True, type=str, help="Path to the PCBM checkpoint")
-    
+    parser.add_argument("--explain-method", required=True, type=str)
     parser.add_argument("--dataset", default="cifar10", type=str)
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--batch-size", default=64, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
+    
+    parser.add_argument("--eps", default=8/255, type=float)
     
     parser.add_argument('--save-100-local', action='store_true')
 
@@ -62,19 +67,20 @@ def main(args):
                    preprocess = preprocess, 
                    normalizer = normalizer, 
                    backbone = backbone)
-    posthoc_concept_net = PCBM_Net(model_context=model_context)
+    posthoc_concept_net = PCBM_Net(model_context=model_context,
+                                   output_logit=True)
     
-    totall_accuracy = []
-    for idx, data in tqdm(enumerate(test_loader), 
-                          total=test_loader.__len__()):
-        batch_X, batch_Y = data
-        batch_X:torch.Tensor = batch_X.to(args.device)
-        batch_Y:torch.Tensor = batch_Y.to(args.device)
-        
-        totall_accuracy.append((posthoc_concept_net(batch_X, True) == batch_Y).float().mean().item())
-    totall_accuracy = np.array(totall_accuracy).mean()
+    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(args = args, 
+                                                                  posthoc_concept_net = posthoc_concept_net)
+    explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
     
-    print(f"accuracy: {totall_accuracy}")
+    agst_module = AGST(model = posthoc_concept_net, 
+                       attak_func="FGSM",
+                       explain_func = partial(explain_algorithm_forward, explain_algorithm=explain_algorithm),
+                       eps = 8/255,
+                       device=torch.device(args.device))
+    agst_module.train_one_epoch(test_loader)
+    
     
 if __name__ == "__main__":
     args = config()

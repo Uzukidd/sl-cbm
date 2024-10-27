@@ -21,25 +21,8 @@ from pcbm.concepts import ConceptBank
 from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
 from pcbm.training_tools import load_or_compute_projections
 
-from constants import dataset_constants
-
-
-@dataclass
-class model_result:
-    batch_X:Optional[torch.Tensor] = None
-    batch_Y:Optional[torch.Tensor] = None
-    embeddings:Optional[torch.Tensor] = None
-    concept_projs:Optional[torch.Tensor] = None
-    batch_Y_predicted:Optional[torch.Tensor] = None
-
-
-@dataclass
-class model_pipeline:
-    concept_bank:ConceptBank
-    posthoc_layer:PosthocLinearCBM
-    preprocess:transforms.Compose
-    normalizer:transforms.Compose
-    backbone:nn.Module
+from .constants import dataset_constants
+from .model_utils import *
 
 
 def set_random_seed(seed):
@@ -138,27 +121,6 @@ def load_concept_bank(args) -> ConceptBank:
     
     return concept_bank
 
-class ResNetBottom(nn.Module):
-    def __init__(self, original_model):
-        super(ResNetBottom, self).__init__()
-        self.features = nn.Sequential(*list(original_model.children())[:-1])
-
-    def forward(self, x):
-        x = self.features(x)
-        x = torch.flatten(x, 1)
-        return x
-
-
-class ResNetTop(nn.Module):
-    def __init__(self, original_model):
-        super(ResNetTop, self).__init__()
-        self.features = nn.Sequential(*[list(original_model.children())[-1]])
-
-    def forward(self, x):
-        x = self.features(x)
-        x = nn.Softmax(dim=-1)(x)
-        return x
-
 
 def load_backbone(args) -> Tuple[nn.Module, transforms.Compose]:
     if "clip" in args.backbone_name:
@@ -226,6 +188,22 @@ def model_forward_wrapper(model_context:model_pipeline,):
         return concept_projs
     
     return partial(model_forward, model_context = model_context)
+
+def load_model_pipeline(args:argparse.Namespace):
+    concept_bank = load_concept_bank(args)
+    backbone, preprocess = load_backbone(args)
+    normalizer = transforms.Compose(preprocess.transforms[-1:])
+    preprocess = transforms.Compose(preprocess.transforms[:-1])
+    
+    posthoc_layer = load_pcbm(args)
+    trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader = load_dataset(args, preprocess)
+    
+    model_context = model_pipeline(concept_bank = concept_bank, 
+                   posthoc_layer = posthoc_layer, 
+                   preprocess = preprocess, 
+                   normalizer = normalizer, 
+                   backbone = backbone)
+    posthoc_concept_net = PCBM_Net(model_context=model_context)
 
 def topK_concept_to_name(args, pcbm_net,
                          batch_X:torch.Tensor,

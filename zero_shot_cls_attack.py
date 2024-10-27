@@ -17,6 +17,8 @@ import torch.nn as nn
 from torchvision import datasets
 import torchvision.transforms as transforms
 
+from autoattack import AutoAttack
+
 from pcbm.learn_concepts_multimodal import *
 from pcbm.data import get_dataset
 from pcbm.concepts import ConceptBank
@@ -42,6 +44,8 @@ def config():
     parser.add_argument("--batch-size", default=64, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
     
+    parser.add_argument("--eps", default=8/255, type=float)
+    
     parser.add_argument('--save-100-local', action='store_true')
 
 
@@ -62,7 +66,14 @@ def main(args):
                    preprocess = preprocess, 
                    normalizer = normalizer, 
                    backbone = backbone)
-    posthoc_concept_net = PCBM_Net(model_context=model_context)
+    posthoc_concept_net = PCBM_Net(model_context=model_context, 
+                                    output_logit=True)
+    adversary = AutoAttack(lambda x: posthoc_concept_net(x), 
+                           norm='Linf', 
+                           eps=args.eps, 
+                           version='standard',
+                           verbose=False)
+
     
     totall_accuracy = []
     for idx, data in tqdm(enumerate(test_loader), 
@@ -71,7 +82,10 @@ def main(args):
         batch_X:torch.Tensor = batch_X.to(args.device)
         batch_Y:torch.Tensor = batch_Y.to(args.device)
         
-        totall_accuracy.append((posthoc_concept_net(batch_X, True) == batch_Y).float().mean().item())
+        x_adv = adversary.run_standard_evaluation(batch_X, batch_Y, bs=args.batch_size)
+        # dict_adv = adversary.run_standard_evaluation_individual(batch_X, batch_Y, bs=args.batch_size)
+                
+        totall_accuracy.append((posthoc_concept_net(x_adv, True) == batch_Y).float().mean().item())
     totall_accuracy = np.array(totall_accuracy).mean()
     
     print(f"accuracy: {totall_accuracy}")

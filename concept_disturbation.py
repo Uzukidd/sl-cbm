@@ -21,8 +21,7 @@ from pcbm.models import PosthocLinearCBM, get_model
 
 from captum.attr import IntegratedGradients, visualization
 
-from common_utils import *
-from attack_utils import *
+from utils import *
 
 
 def config():

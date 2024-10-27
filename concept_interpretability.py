@@ -22,13 +22,8 @@ from pcbm.concepts import ConceptBank
 from pcbm.models import PosthocLinearCBM, get_model
 
 from captum.attr import visualization, GradientAttribution, LayerAttribution
-from explain_utils import layer_grad_cam_vit
+from utils import *
 
-from constants import *
-from common_utils import *
-from attack_utils import *
-from model_utils import *
-from visual_utils import *
 
 
 def config():
@@ -54,114 +49,6 @@ def config():
 
 
     return parser.parse_args()
-
-class model_explain_algorithm_factory:
-    
-    @staticmethod
-    def integrated_gradient(args, 
-                            posthoc_concept_net:PCBM_Net,):
-        from captum.attr import IntegratedGradients
-        integrated_grad = IntegratedGradients(posthoc_concept_net)
-        return integrated_grad
-    
-    @staticmethod
-    def guided_grad_cam(args, 
-                        posthoc_concept_net:PCBM_Net):
-        from captum.attr import GuidedGradCam
-        raise NotImplementedError
-        guided_gradcam = GuidedGradCam(posthoc_concept_net,
-                                        getattr(posthoc_concept_net.get_backbone(),
-                                                target_layer))
-        return guided_gradcam
-    
-    @staticmethod
-    def layer_grad_cam(args, 
-                posthoc_concept_net:PCBM_Net):
-        from captum.attr import LayerGradCam
-        layer_grad_cam = None
-        backbone = posthoc_concept_net.backbone
-        if isinstance(backbone, CLIP):
-            if isinstance(backbone.visual, ModifiedResNet):
-                layer_grad_cam = LayerGradCam(posthoc_concept_net,
-                                                getattr(backbone.visual,
-                                                        "layer4")[-1])
-            
-            # elif isinstance(backbone.visual, VisionTransformer):
-            #     image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
-            #     # print(image_attn_blocks[0].attn_probs.size())
-            #     # image_attn_blocks = backbone.visual.transformer
-            #     # image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
-            #     # print(image_attn_blocks)
-            #     last_blocks = image_attn_blocks[-2]
-            #     # print(last_blocks)
-            #     layer_grad_cam = LayerGradCam(posthoc_concept_net,
-            #                                     last_blocks)
-            #     # layer_grad_cam = layer_grad_cam_vit(posthoc_concept_net,
-            #     #                                 last_blocks)
-            
-        elif isinstance(backbone, ResNetBottom):
-            layer_grad_cam = LayerGradCam(posthoc_concept_net,
-                                          backbone.get_submodule("features").get_submodule("0").get_submodule("stage4") )
-            
-        return layer_grad_cam
-    
-    @staticmethod
-    def layer_grad_cam_vit(args, 
-                posthoc_concept_net:PCBM_Net):
-        from captum.attr import LayerGradCam
-        layer_grad_cam = None
-        backbone = posthoc_concept_net.backbone
-        if isinstance(backbone, CLIP) and isinstance(backbone.visual, VisionTransformer):
-            image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
-            last_blocks = image_attn_blocks[-1].ln_1
-            layer_grad_cam = layer_grad_cam_vit(posthoc_concept_net,
-                                            last_blocks)
-        else:
-            raise NotImplementedError
-                    
-        return layer_grad_cam
-    
-class model_explain_algorithm_forward:
-    
-    @staticmethod
-    def integrated_gradient(batch_X:torch.Tensor,
-                            explain_algorithm:GradientAttribution,
-                            target:Union[torch.Tensor|int]):
-        if isinstance(target, torch.Tensor):
-            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
-
-        attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
-        return attributions
-    
-    @staticmethod
-    def guided_grad_cam(batch_X:torch.Tensor,
-                            explain_algorithm:GradientAttribution,
-                            target:Union[torch.Tensor|int]):
-        if isinstance(target, torch.Tensor):
-            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
-
-        attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
-        return attributions
-    
-    @staticmethod
-    def layer_grad_cam(batch_X:torch.Tensor,
-                            explain_algorithm:GradientAttribution,
-                            target:Union[torch.Tensor|int]):
-        if isinstance(target, torch.Tensor):
-            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
-
-        attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
-        upsampled_attr = LayerAttribution.interpolate(attributions, batch_X.size()[-2:], interpolate_mode="bicubic")
-        return upsampled_attr
-    
-    @staticmethod
-    def layer_grad_cam_vit(batch_X:torch.Tensor,
-                            explain_algorithm:GradientAttribution,
-                            target:Union[torch.Tensor|int]):
-        return __class__.layer_grad_cam(batch_X = batch_X,
-                              explain_algorithm = explain_algorithm,
-                              target = target)
-
 
 
 class concept_select_func:
@@ -214,14 +101,11 @@ def main(args):
         if args.class_target != "" and idx_to_class[batch_Y.item()] != args.class_target:
             continue
         
-        if posthoc_concept_net(batch_X, True).item() != batch_Y.item():
+        if posthoc_concept_net.output_as_class(batch_X).item() != batch_Y.item():
             continue
         
         batch_X.requires_grad_(True)
         
-        # show_image(batch_X.detach().cpu())
-        
-        # attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=targeted_concept_idx)
         attributions:torch.Tensor = explain_algorithm_forward(batch_X=batch_X, 
                                                               explain_algorithm=explain_algorithm,
                                                               target=targeted_concept_idx)
