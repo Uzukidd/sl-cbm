@@ -1,5 +1,5 @@
 cd ../..
-python model_agst.py --dataset="cifar10"\
+python model_asgt.py --dataset="cifar10"\
             --backbone-ckpt="/home/ksas/Public/model_zoo/clip"\
             --backbone-name="open_clip:RN50"\
             --concept-bank="/home/ksas/Public/datasets/cifar10_concept_bank/multimodal_concept_clip:RN50_cifar10_recurse:1.pkl"\

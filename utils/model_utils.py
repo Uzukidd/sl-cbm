@@ -39,6 +39,7 @@ class ResNetBottom(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
+        print(x.size())
         x = torch.flatten(x, 1)
         return x
 
@@ -86,7 +87,6 @@ class PCBM_Net(nn.Module):
 
         return self.posthoc_layer.forward_projs(concept_projs).argmax(1)
        
-    
     def get_backbone(self):
         return self.backbone
     

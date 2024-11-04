@@ -27,12 +27,10 @@ def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):
     if comparison_images is not None:
         images = torch.cat((images, comparison_images), dim=3)
 
-    # 使用 torchvision.utils.make_grid 将 64 张图片排列成 8x8 的网格
-    grid_img = torchvision.utils.make_grid(images, nrow=2, normalize=True)
+    grid_img = torchvision.utils.make_grid(images, nrow=4, normalize=True)
 
-    # 转换为 NumPy 格式以便用 matplotlib 显示
-    plt.imshow(grid_img.permute(1, 2, 0))  # 转换为 [H, W, C]
-    plt.axis('off')  # 隐藏坐标轴
+    plt.imshow(grid_img.permute(1, 2, 0)) 
+    plt.axis('off')
     plt.show()
     
 def getAttMap(img, attn_map, blur=True):

@@ -1,16 +1,7 @@
 import argparse
-import random
-import clip.model
-import numpy as np
-import pickle as pkl
-import json
 import time
-from tqdm import tqdm
-from typing import Tuple, Callable, Union, Dict
 
 import clip
-from clip.model import CLIP, ModifiedResNet, VisionTransformer
-from open_clip_train.train import train_one_epoch, evaluate
 
 import torch
 import torch.nn as nn
@@ -18,13 +9,9 @@ from torchvision import datasets
 import torchvision.transforms as transforms
 
 from pcbm.learn_concepts_multimodal import *
-from pcbm.data import get_dataset
-from pcbm.concepts import ConceptBank
-from pcbm.models import PosthocLinearCBM, get_model
 
-from captum.attr import visualization, GradientAttribution, LayerAttribution
 from utils import *
-
+from asgt import ASGT
 
 def config():
     parser = argparse.ArgumentParser()
@@ -44,7 +31,6 @@ def config():
     
     parser.add_argument('--save-100-local', action='store_true')
 
-
     return parser.parse_args()
     
 def main(args):
@@ -62,19 +48,25 @@ def main(args):
                    preprocess = preprocess, 
                    normalizer = normalizer, 
                    backbone = backbone)
-    posthoc_concept_net = PCBM_Net(model_context=model_context)
+
+    posthoc_concept_net = PCBM_Net(model_context=model_context,
+                                   output_logit=True)
     
-    totall_accuracy = []
-    for idx, data in tqdm(enumerate(test_loader), 
-                          total=test_loader.__len__()):
-        batch_X, batch_Y = data
-        batch_X:torch.Tensor = batch_X.to(args.device)
-        batch_Y:torch.Tensor = batch_Y.to(args.device)
-        
-        totall_accuracy.append((posthoc_concept_net(batch_X, True) == batch_Y).float().mean().item())
-    totall_accuracy = np.array(totall_accuracy).mean()
+    asgt_module = ASGT(model = posthoc_concept_net, 
+                       training_forward_func = None,
+                       loss_func = nn.CrossEntropyLoss(),
+                       attak_func="FGSM",
+                       explain_func = None,
+                       eps = 0.025,
+                       k = -1,
+                       lam = -1,
+                       feature_range= (0.0, 1.0),
+                       device=torch.device(args.device))
     
-    print(f"accuracy: {totall_accuracy}")
+    asgt_module.evaluate_model(train_loader)
+    asgt_module.evaluate_model(test_loader)
+    robustness = asgt_module.evaluate_model_robustness(test_loader)
+
     
 if __name__ == "__main__":
     args = config()

@@ -3,8 +3,9 @@ import torch.nn as nn
 import numpy as np
 
 import clip
+import open_clip
 from clip.model import CLIP, ModifiedResNet, VisionTransformer
-from captum.attr import GradientAttribution, LayerAttribution, Saliency
+from captum.attr import *
 from .model_utils import *
 from typing import Callable, Union
 
@@ -61,21 +62,18 @@ class model_explain_algorithm_factory:
     @staticmethod
     def saliency_map(args, 
                     posthoc_concept_net:PCBM_Net,):
-        from captum.attr import IntegratedGradients
         saliency = Saliency(posthoc_concept_net)
         return saliency
     
     @staticmethod
     def integrated_gradient(args, 
                             posthoc_concept_net:PCBM_Net,):
-        from captum.attr import IntegratedGradients
         integrated_grad = IntegratedGradients(posthoc_concept_net)
         return integrated_grad
     
     @staticmethod
     def guided_grad_cam(args, 
                         posthoc_concept_net:PCBM_Net):
-        from captum.attr import GuidedGradCam
         raise NotImplementedError
         guided_gradcam = GuidedGradCam(posthoc_concept_net,
                                         getattr(posthoc_concept_net.get_backbone(),
@@ -85,7 +83,6 @@ class model_explain_algorithm_factory:
     @staticmethod
     def layer_grad_cam(args, 
                 posthoc_concept_net:PCBM_Net):
-        from captum.attr import LayerGradCam
         layer_grad_cam = None
         backbone = posthoc_concept_net.backbone
         if isinstance(backbone, CLIP):
@@ -106,17 +103,20 @@ class model_explain_algorithm_factory:
             #                                     last_blocks)
             #     # layer_grad_cam = layer_grad_cam_vit(posthoc_concept_net,
             #     #                                 last_blocks)
+        elif isinstance(backbone, open_clip.model.CLIP):
+             if isinstance(backbone.visual, open_clip.model.ModifiedResNet):
+                layer_grad_cam = LayerGradCam(posthoc_concept_net,
+                                                getattr(backbone.visual,
+                                                        "layer4")[-1])
             
         elif isinstance(backbone, ResNetBottom):
             layer_grad_cam = LayerGradCam(posthoc_concept_net,
                                           backbone.get_submodule("features").get_submodule("0").get_submodule("stage4") )
-            
         return layer_grad_cam
     
     @staticmethod
     def layer_grad_cam_vit(args, 
                 posthoc_concept_net:PCBM_Net):
-        from captum.attr import LayerGradCam
         layer_grad_cam = None
         backbone = posthoc_concept_net.backbone
         if isinstance(backbone, CLIP) and isinstance(backbone.visual, VisionTransformer):
@@ -133,17 +133,17 @@ class model_explain_algorithm_forward:
     
     @staticmethod
     def saliency_map(batch_X:torch.Tensor,
-                            explain_algorithm:GradientAttribution,
+                            explain_algorithm:Saliency,
                             target:Union[torch.Tensor|int]):
         if isinstance(target, torch.Tensor):
             batch_X = batch_X.expand(target.size(0), -1, -1, -1)
 
-        attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
+        attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target, abs=False)
         return attributions
     
     @staticmethod
     def integrated_gradient(batch_X:torch.Tensor,
-                            explain_algorithm:GradientAttribution,
+                            explain_algorithm:IntegratedGradients,
                             target:Union[torch.Tensor|int]):
         if isinstance(target, torch.Tensor):
             batch_X = batch_X.expand(target.size(0), -1, -1, -1)
@@ -153,7 +153,7 @@ class model_explain_algorithm_forward:
     
     @staticmethod
     def guided_grad_cam(batch_X:torch.Tensor,
-                            explain_algorithm:GradientAttribution,
+                            explain_algorithm:GuidedGradCam,
                             target:Union[torch.Tensor|int]):
         if isinstance(target, torch.Tensor):
             batch_X = batch_X.expand(target.size(0), -1, -1, -1)
@@ -163,7 +163,7 @@ class model_explain_algorithm_forward:
     
     @staticmethod
     def layer_grad_cam(batch_X:torch.Tensor,
-                            explain_algorithm:GradientAttribution,
+                            explain_algorithm:LayerGradCam,
                             target:Union[torch.Tensor|int]):
         if isinstance(target, torch.Tensor):
             batch_X = batch_X.expand(target.size(0), -1, -1, -1)
@@ -174,7 +174,7 @@ class model_explain_algorithm_forward:
     
     @staticmethod
     def layer_grad_cam_vit(batch_X:torch.Tensor,
-                            explain_algorithm:GradientAttribution,
+                            explain_algorithm:layer_grad_cam_vit,
                             target:Union[torch.Tensor|int]):
         return __class__.layer_grad_cam(batch_X = batch_X,
                               explain_algorithm = explain_algorithm,

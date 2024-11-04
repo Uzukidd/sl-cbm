@@ -55,6 +55,7 @@ def main(args):
     set_random_seed(args.universal_seed)
     concept_bank = load_concept_bank(args)
     backbone, preprocess = load_backbone(args)
+    print(preprocess)
     normalizer = transforms.Compose(preprocess.transforms[-1:])
     preprocess = transforms.Compose(preprocess.transforms[:-1])
     

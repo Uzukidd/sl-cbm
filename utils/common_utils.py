@@ -13,6 +13,7 @@ import clip
 import torch
 import torch.nn as nn
 from torchvision import datasets
+from torch.utils.data  import DataLoader
 import torchvision.transforms as transforms
 
 from pcbm.learn_concepts_multimodal import *
@@ -56,9 +57,9 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:t
         classes = trainset.classes
         class_to_idx = {c: i for (i,c) in enumerate(classes)}
         idx_to_class = {v: k for k, v in class_to_idx.items()}
-        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
+        train_loader = DataLoader(trainset, batch_size=args.batch_size,
                                               shuffle=True, num_workers=args.num_workers)
-        test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
+        test_loader = DataLoader(testset, batch_size=args.batch_size,
                                           shuffle=False, num_workers=args.num_workers)
     
     
@@ -70,9 +71,9 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:t
         classes = trainset.classes
         class_to_idx = {c: i for (i,c) in enumerate(classes)}
         idx_to_class = {v: k for k, v in class_to_idx.items()}
-        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
+        train_loader = DataLoader(trainset, batch_size=args.batch_size,
                                               shuffle=True, num_workers=args.num_workers)
-        test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
+        test_loader = DataLoader(testset, batch_size=args.batch_size,
                                           shuffle=False, num_workers=args.num_workers)
 
 
@@ -82,11 +83,11 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:t
         num_classes = 200
         TRAIN_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "train.pkl")
         TEST_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "test.pkl")
-        train_loader = load_cub_data([TRAIN_PKL], use_attr=False, no_img=False, 
+        trainset, train_loader = load_cub_data([TRAIN_PKL], use_attr=False, no_img=False, 
             batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_constants.CUB_DATA_DIR, resol=224, normalizer=None,
             n_classes=num_classes, resampling=True)
 
-        test_loader = load_cub_data([TEST_PKL], use_attr=False, no_img=False, 
+        testset, test_loader = load_cub_data([TEST_PKL], use_attr=False, no_img=False, 
                 batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_constants.CUB_DATA_DIR, resol=224, normalizer=None,
                 n_classes=num_classes, resampling=True)
 
@@ -113,7 +114,20 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:t
 
     return trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader
 
-def load_concept_bank(args) -> ConceptBank:
+
+@dataclass
+class concept_bank_configure:
+    concept_bank:str
+    device:Union[str, torch.device]
+
+def load_concept_bank(args:Union[argparse.Namespace, concept_bank_configure]) -> ConceptBank:
+    
+    if isinstance(args, argparse.Namespace):
+        args = concept_bank_configure(
+            concept_bank = args.concept_bank,
+            device = args.device
+        )
+    
     all_concepts = pkl.load(open(args.concept_bank, 'rb'))
     all_concept_names = list(all_concepts.keys())
     print(f"Bank path: {args.concept_bank}. {len(all_concept_names)} concepts will be used.")
@@ -122,8 +136,33 @@ def load_concept_bank(args) -> ConceptBank:
     return concept_bank
 
 
-def load_backbone(args) -> Tuple[nn.Module, transforms.Compose]:
-    if "clip" in args.backbone_name:
+@dataclass
+class backbone_configure:
+    backbone_name:str
+    backbone_ckpt:str
+    device:Union[str, torch.device]
+
+def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:bool=False) -> Tuple[nn.Module, transforms.Compose]:
+        
+    if isinstance(args, argparse.Namespace):
+        args = backbone_configure(
+            backbone_name = args.backbone_name,
+            backbone_ckpt = args.backbone_ckpt,
+            device = args.device
+        )
+    
+    if "open_clip" in args.backbone_name:
+        import open_clip
+        clip_backbone_name = args.backbone_name.split(":")[1]
+        if os.path.isdir(args.backbone_ckpt):
+            backbone, _, preprocess = open_clip.create_model_and_transforms(clip_backbone_name, pretrained='openai', cache_dir=args.backbone_ckpt)
+        else:
+            backbone, _, preprocess = open_clip.create_model_and_transforms(clip_backbone_name, pretrained=args.backbone_ckpt)
+
+        backbone = backbone.float()\
+            .to(args.device)\
+            .eval()
+    elif "clip" in args.backbone_name:
         import clip
         # We assume clip models are passed of the form : clip:RN50
         clip_backbone_name = args.backbone_name.split(":")[1]
@@ -135,7 +174,11 @@ def load_backbone(args) -> Tuple[nn.Module, transforms.Compose]:
     elif args.backbone_name == "resnet18_cub":
         from pytorchcv.model_provider import get_model as ptcv_get_model
         model = ptcv_get_model(args.backbone_name, pretrained=True, root=args.backbone_ckpt)
-        backbone, model_top = ResNetBottom(model), ResNetTop(model)
+        if full_load:
+            backbone = model
+        else:
+            backbone, model_top = ResNetBottom(model), ResNetTop(model)
+            
         backbone.encode_image = lambda image: backbone(image)
         cub_mean_pxs = np.array([0.5, 0.5, 0.5])
         cub_std_pxs = np.array([2., 2., 2.])
@@ -145,14 +188,6 @@ def load_backbone(args) -> Tuple[nn.Module, transforms.Compose]:
             transforms.Normalize(cub_mean_pxs, cub_std_pxs)
             ])
         backbone = backbone.to(args.device)\
-            .eval()
-            
-    elif "open_clip" in args.backbone_name:
-        import open_clip
-        clip_backbone_name = args.backbone_name.split(":")[1]
-        backbone, _, preprocess = open_clip.create_model_and_transforms(clip_backbone_name, pretrained='openai', cache_dir="/home/ksas/Public/model_zoo/clip")
-        backbone = backbone.float()\
-            .to(args.device)\
             .eval()
     
     elif args.backbone_name.lower() == "ham10000_inception":
@@ -171,7 +206,19 @@ def load_backbone(args) -> Tuple[nn.Module, transforms.Compose]:
  
     return backbone, preprocess
 
-def load_pcbm(args) -> PosthocLinearCBM:
+@dataclass
+class pcbm_configure:
+    pcbm_ckpt:str
+    device:Union[str, torch.device]
+
+def load_pcbm(args:Union[argparse.Namespace, pcbm_configure]) -> PosthocLinearCBM:
+    
+    if isinstance(args, argparse.Namespace):
+        args = pcbm_configure(
+            pcbm_ckpt = args.pcbm_ckpt,
+            device = args.device
+        )
+    
     posthoc_layer:PosthocLinearCBM = torch.load(args.pcbm_ckpt, map_location=args.device)
     # print(posthoc_layer.analyze_classifier(k=5))
     # print(posthoc_layer.names)

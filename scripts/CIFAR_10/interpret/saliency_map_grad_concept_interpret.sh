@@ -1,4 +1,4 @@
-cd ../..
+cd ../../..
 python concept_interpretability.py --dataset="cifar10"\
             --backbone-ckpt="/home/ksas/Public/model_zoo/clip"\
             --backbone-name="clip:RN50"\

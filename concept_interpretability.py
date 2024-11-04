@@ -141,10 +141,6 @@ def main(args):
                         title=f"{idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
                         save_to=None)
 
-
-
-        
-    
     # original_Xs = torch.concat(original_Xs, dim = 0)
     # batch_Ys = torch.concat(batch_Ys, dim = 0)
     # adversarial_Xs = torch.concat(adversarial_Xs, dim = 0)
