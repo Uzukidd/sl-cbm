@@ -6,10 +6,12 @@ import torch
 from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import roc_auc_score
 
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from pcbm.data import get_dataset
-from pcbm.concepts import ConceptBank
-from pcbm.models import PosthocLinearCBM, get_model
+from utils import common_utils
+
+from pcbm.models import PosthocLinearCBM
 from pcbm.training_tools import load_or_compute_projections
 
 
@@ -71,14 +73,14 @@ def run_linear_probe(args, train_data, test_data):
 
 
 def main(args, concept_bank, backbone, preprocess):
-    train_loader, test_loader, idx_to_class, classes = get_dataset(args, preprocess, args.dataset_path)
+    trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader = common_utils.load_dataset(args, preprocess)
     
     # Get a clean conceptbank string
     # e.g. if the path is /../../cub_resnet-cub_0.1_100.pkl, then the conceptbank string is resnet-cub_0.1_100
     # which means a bank learned with 100 samples per concept with C=0.1 regularization parameter for the SVM. 
     # See `learn_concepts_dataset.py` for details.
     conceptbank_source = args.concept_bank.split("/")[-1].split(".")[0] 
-    num_classes = len(classes)
+    num_classes = len(class_to_idx)
     
     # Initialize the PCBM module.
     posthoc_layer = PosthocLinearCBM(concept_bank, backbone_name=args.backbone_name, idx_to_class=idx_to_class, n_classes=num_classes)
@@ -115,13 +117,6 @@ def main(args, concept_bank, backbone, preprocess):
 
 if __name__ == "__main__":
     args = config()
-    all_concepts = pickle.load(open(args.concept_bank, 'rb'))
-    all_concept_names = list(all_concepts.keys())
-    print(f"Bank path: {args.concept_bank}. {len(all_concept_names)} concepts will be used.")
-    concept_bank = ConceptBank(all_concepts, args.device)
-
-    # Get the backbone from the model zoo.
-    backbone, preprocess = get_model(args, backbone_name=args.backbone_name, download_root=args.backbone_ckpt)
-    backbone = backbone.to(args.device)
-    backbone.eval()
+    concept_bank = common_utils.load_concept_bank(args)
+    backbone, preprocess = common_utils.load_backbone(args)
     main(args, concept_bank, backbone, preprocess)

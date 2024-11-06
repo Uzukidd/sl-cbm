@@ -4,19 +4,26 @@ import torch
 import argparse
 
 import numpy as np
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from pcbm.models import get_model
+from utils import *
+
 from pcbm.concepts import learn_concept_bank
 from pcbm.data import get_concept_loaders
 
 
 def config():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--backbone-ckpt", required=True, type=str, help="Path to the backbone ckpt")
     parser.add_argument("--backbone-name", default="resnet18_cub", type=str)
+    
     parser.add_argument("--dataset-name", default="cub", type=str)
     parser.add_argument("--out-dir", required=True, type=str)
+    
     parser.add_argument("--device", default="cuda", type=str)
-    parser.add_argument("--seed", default=1, type=int, help="Random seed")
+    parser.add_argument("--seed", default=24, type=int, help="Random seed")
+    
     parser.add_argument("--num-workers", default=4, type=int, help="Number of workers in the data loader.")
     parser.add_argument("--batch-size", default=100, type=int, help="Batch size in the concept loader.")
     parser.add_argument("--C", nargs="+", default=[0.01, 0.1], type=float, help="Regularization parameter for SVMs.")
@@ -29,9 +36,10 @@ def main():
     n_samples = args.n_samples
 
     # Bottleneck part of model
-    backbone, preprocess = get_model(args, args.backbone_name)
-    backbone = backbone.to(args.device)
-    backbone = backbone.eval()
+    backbone, preprocess = load_backbone(args)
+    # backbone, preprocess = get_model(args, args.backbone_name)
+    # backbone = backbone.to(args.device)
+    # backbone = backbone.eval()
     
     concept_libs = {C: {} for C in args.C}
     # Get the positive and negative loaders for each concept. 

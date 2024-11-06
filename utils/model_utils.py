@@ -39,7 +39,6 @@ class ResNetBottom(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
-        print(x.size())
         x = torch.flatten(x, 1)
         return x
 

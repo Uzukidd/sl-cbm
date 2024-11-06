@@ -17,7 +17,6 @@ from torch.utils.data  import DataLoader
 import torchvision.transforms as transforms
 
 from pcbm.learn_concepts_multimodal import *
-from pcbm.data import get_dataset
 from pcbm.concepts import ConceptBank
 from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
 from pcbm.training_tools import load_or_compute_projections
@@ -173,7 +172,12 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
     
     elif args.backbone_name == "resnet18_cub":
         from pytorchcv.model_provider import get_model as ptcv_get_model
-        model = ptcv_get_model(args.backbone_name, pretrained=True, root=args.backbone_ckpt)
+        if os.path.isdir(args.backbone_ckpt):
+            model = ptcv_get_model(args.backbone_name, pretrained=True, root=args.backbone_ckpt)
+        else:
+            model = ptcv_get_model(args.backbone_name, pretrained=False)
+            model.load_state_dict(torch.load(args.backbone_ckpt)["state_dict"])
+            
         if full_load:
             backbone = model
         else:

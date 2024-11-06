@@ -48,6 +48,7 @@ def config():
     
     # parser.add_argument("--train-method", required=True, type=str)
     
+    parser.add_argument("--lr", default=1e-4, type=float)
     parser.add_argument("--eps", default=0.025, type=float)
     parser.add_argument("--k", default=1e-1, type=float)
     
@@ -66,8 +67,12 @@ class get_classification_model:
     
     @staticmethod
     def clip(model_context:model_pipeline):
-        return PCBM_Net(model_context=model_context,
+        posthoc_concept_net = PCBM_Net(model_context=model_context,
                                    output_logit=True)
+        
+        posthoc_concept_net.posthoc_layer.classifier.weight.requires_grad_(False)
+        posthoc_concept_net.posthoc_layer.classifier.bias.requires_grad_(False)
+        return posthoc_concept_net
     @staticmethod
     def open_clip(model_context:model_pipeline):
         return __class__.clip(model_context)
@@ -75,7 +80,20 @@ class get_classification_model:
     @staticmethod
     def resnet18_cub(model_context:model_pipeline):
         return model_context.backbone
-
+    
+class save_checkpoint:
+    
+    @staticmethod
+    def clip(args:argparse.Namespace, model:PCBM_Net):
+        torch.save({"state_dict": model.backbone.state_dict()}, f"./robust_{args.backbone_name.replace("/", "-")}.pth")
+        
+    @staticmethod
+    def open_clip(args:argparse.Namespace, model:PCBM_Net):
+        return __class__.clip(args, model)
+    
+    @staticmethod
+    def resnet18_cub(args:argparse.Namespace, model:nn.Module):
+        return torch.save({"state_dict": model.state_dict()}, f"./robust_{args.backbone_name.replace("/", "-")}.pth")
 
 def main(args):
     set_random_seed(args.universal_seed)
@@ -96,17 +114,16 @@ def main(args):
     
         
     backbone_arch = args.backbone_name.split(":")[0]
-    posthoc_concept_net = getattr(get_classification_model, backbone_arch)(model_context=model_context,)
+    model:nn.Module = getattr(get_classification_model, backbone_arch)(model_context=model_context,)
+    
     explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(args = args, 
-                                                                  posthoc_concept_net = posthoc_concept_net)
+                                                                  posthoc_concept_net = model)
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
     
-
-    
-    optimizer = optim.Adam(posthoc_concept_net.parameters(), lr=1e-4)
-    asgt_module = ASGT(model = posthoc_concept_net, 
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    asgt_module = ASGT(model = model, 
                        training_forward_func = partial(training_forward_func,
-                                                       model = posthoc_concept_net,
+                                                       model = model,
                                                        optimizer = optimizer),
                        loss_func = nn.CrossEntropyLoss(),
                        attak_func="FGSM",
@@ -115,22 +132,19 @@ def main(args):
                        eps = args.eps,
                        k = int(224 * 224 * args.k),
                        lam = 1.0,
-                        feature_range= (0.0, 1.0),
+                       feature_range= (0.0, 1.0),
                        device=torch.device(args.device))
     
     asgt_module.evaluate_model(train_loader)
     asgt_module.evaluate_model(test_loader)
     asgt_module.evaluate_model_robustness(test_loader)
-    
-    if hasattr(posthoc_concept_net, "posthoc_layer"):
-        posthoc_concept_net.posthoc_layer.classifier.weight.requires_grad_(False)
-        posthoc_concept_net.posthoc_layer.classifier.bias.requires_grad_(False)
         
-    num_epochs = 5
-    for epoch in range(num_epochs):
+    num_epoches = 20
+    for epoch in range(num_epoches):
         running_loss = asgt_module.train_one_epoch(train_loader)
-        print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / len(train_loader):.4f}")
-        torch.save({"state_dict": posthoc_concept_net.backbone.state_dict()}, f"./robust_{args.backbone_name.replace("/", "-")}.pth")
+        print(f"Epoch [{epoch + 1}/{num_epoches}], Loss: {running_loss / len(train_loader):.4f}")
+        getattr(save_checkpoint, backbone_arch)(args=args, 
+                                                model = model)
         asgt_module.evaluate_model(train_loader)
         asgt_module.evaluate_model(test_loader)
         robustness = asgt_module.evaluate_model_robustness(test_loader)

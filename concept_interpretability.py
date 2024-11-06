@@ -101,8 +101,8 @@ def main(args):
         if args.class_target != "" and idx_to_class[batch_Y.item()] != args.class_target:
             continue
         
-        if posthoc_concept_net.output_as_class(batch_X).item() != batch_Y.item():
-            continue
+        # if posthoc_concept_net.output_as_class(batch_X).item() != batch_Y.item():
+        #     continue
         
         batch_X.requires_grad_(True)
         
