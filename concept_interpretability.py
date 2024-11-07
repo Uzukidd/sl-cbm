@@ -76,7 +76,7 @@ def main(args):
     preprocess = transforms.Compose(preprocess.transforms[:-1])
     
     posthoc_layer = load_pcbm(args)
-    trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader = load_dataset(args, preprocess)
+    dataset = load_dataset(args, preprocess)
     
     model_context = model_pipeline(concept_bank = concept_bank, 
                    posthoc_layer = posthoc_layer, 
@@ -92,13 +92,13 @@ def main(args):
     print(targeted_concept_idx)
     
     count = 0
-    for idx, data in tqdm(enumerate(test_loader), 
-                          total=test_loader.__len__()):
+    for idx, data in tqdm(enumerate(dataset.test_loader), 
+                          total=dataset.test_loader.__len__()):
         batch_X, batch_Y = data
         batch_X:torch.Tensor = batch_X.to(args.device)
         batch_Y:torch.Tensor = batch_Y.to(args.device)
         
-        if args.class_target != "" and idx_to_class[batch_Y.item()] != args.class_target:
+        if args.class_target != "" and dataset.idx_to_class[batch_Y.item()] != args.class_target:
             continue
         
         # if posthoc_concept_net.output_as_class(batch_X).item() != batch_Y.item():
@@ -121,7 +121,7 @@ def main(args):
             try:
                 captum_vis_attn(batch_X, 
                                 attributions, 
-                                title=f"{idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
+                                title=f"{dataset.idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
                                 save_to=f'data/{args.explain_method}/{args.concept_target}_images/{idx:03d}-captum-image.jpg')
             except:
                 pass
@@ -130,7 +130,7 @@ def main(args):
 
         else:
             for i in range(batch_Y.size(0)):
-                print(f"ground truth: {idx_to_class[batch_Y[i].item()]}")
+                print(f"ground truth: {dataset.idx_to_class[batch_Y[i].item()]}")
             topK_concept_to_name(args, posthoc_concept_net, batch_X)
             viz_attn(batch_X,
                     attributions,
@@ -138,7 +138,7 @@ def main(args):
                     save_to=None)
             captum_vis_attn(batch_X, 
                         attributions, 
-                        title=f"{idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
+                        title=f"{dataset.idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
                         save_to=None)
 
     # original_Xs = torch.concat(original_Xs, dim = 0)

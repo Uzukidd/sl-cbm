@@ -4,7 +4,7 @@ import numpy as np
 import pickle as pkl
 import json
 from tqdm import tqdm
-from typing import Tuple, Callable, Union, Optional
+from typing import Tuple, Callable, Union, Optional, Dict
 from dataclasses import dataclass
 from functools import partial
 
@@ -13,7 +13,7 @@ import clip
 import torch
 import torch.nn as nn
 from torchvision import datasets
-from torch.utils.data  import DataLoader
+from torch.utils.data  import DataLoader, Dataset
 import torchvision.transforms as transforms
 
 from pcbm.learn_concepts_multimodal import *
@@ -38,6 +38,15 @@ class dataset_configure:
     dataset:str
     batch_size:int
     num_workers:int
+    
+@dataclass
+class dataset_collection:
+    trainset:Dataset
+    testset:Dataset
+    class_to_idx:Dict[str ,int]
+    idx_to_class:Dict[int ,str]
+    train_loader:DataLoader
+    test_loader:DataLoader
     
 def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:transforms.Compose):
     trainset, testset = None, None
@@ -110,8 +119,15 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:t
 
     else:
         raise ValueError(args.dataset)
-
-    return trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader
+    return dataset_collection(
+        trainset = trainset, 
+        testset = testset, 
+        class_to_idx = class_to_idx, 
+        idx_to_class = idx_to_class, 
+        train_loader = train_loader, 
+        test_loader = test_loader
+    )
+    return 
 
 
 @dataclass

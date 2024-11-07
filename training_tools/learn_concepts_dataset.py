@@ -35,12 +35,8 @@ def main():
     args = config()
     n_samples = args.n_samples
 
-    # Bottleneck part of model
     backbone, preprocess = load_backbone(args)
-    # backbone, preprocess = get_model(args, args.backbone_name)
-    # backbone = backbone.to(args.device)
-    # backbone = backbone.eval()
-    
+
     concept_libs = {C: {} for C in args.C}
     # Get the positive and negative loaders for each concept. 
     

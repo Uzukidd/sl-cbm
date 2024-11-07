@@ -5,6 +5,7 @@ import numpy as np
 import pickle as pkl
 import json
 import time
+from datetime import datetime
 from tqdm import tqdm
 from typing import Tuple, Callable, Union, Dict
 
@@ -27,7 +28,7 @@ from pcbm.models import PosthocLinearCBM, get_model
 
 from captum.attr import visualization, GradientAttribution, LayerAttribution
 from utils import *
-from asgt import ASGT
+from asgt import robust_training
 
 
 def config():
@@ -46,12 +47,13 @@ def config():
     parser.add_argument("--batch-size", default=64, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
     
-    # parser.add_argument("--train-method", required=True, type=str)
+    parser.add_argument("--train-method", required=True, type=str)
     
     parser.add_argument("--lr", default=1e-4, type=float)
     parser.add_argument("--eps", default=0.025, type=float)
     parser.add_argument("--k", default=1e-1, type=float)
     
+    parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
     parser.add_argument('--save-100-local', action='store_true')
 
 
@@ -61,7 +63,6 @@ def training_forward_func(loss:torch.Tensor, model:nn.Module, optimizer:optim.Op
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-
 
 class get_classification_model:
     
@@ -85,7 +86,7 @@ class save_checkpoint:
     
     @staticmethod
     def clip(args:argparse.Namespace, model:PCBM_Net):
-        torch.save({"state_dict": model.backbone.state_dict()}, f"./robust_{args.backbone_name.replace("/", "-")}.pth")
+        torch.save({"state_dict": model.backbone.state_dict()}, os.path.join(args.save_path, f"{args.train_method}-{args.backbone_name.replace("/", "-")}.pth"))
         
     @staticmethod
     def open_clip(args:argparse.Namespace, model:PCBM_Net):
@@ -93,7 +94,7 @@ class save_checkpoint:
     
     @staticmethod
     def resnet18_cub(args:argparse.Namespace, model:nn.Module):
-        return torch.save({"state_dict": model.state_dict()}, f"./robust_{args.backbone_name.replace("/", "-")}.pth")
+        return torch.save({"state_dict": model.state_dict()}, os.path.join(args.save_path, f"{args.train_method}-{args.backbone_name.replace("/", "-")}.pth"))
 
 def main(args):
     set_random_seed(args.universal_seed)
@@ -121,7 +122,7 @@ def main(args):
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
     
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    asgt_module = ASGT(model = model, 
+    asgt_module = robust_training(model = model, 
                        training_forward_func = partial(training_forward_func,
                                                        model = model,
                                                        optimizer = optimizer),
@@ -129,6 +130,7 @@ def main(args):
                        attak_func="FGSM",
                        explain_func = partial(explain_algorithm_forward, 
                                               explain_algorithm=explain_algorithm),
+                       robust_loss_func=args.train_method,
                        eps = args.eps,
                        k = int(224 * 224 * args.k),
                        lam = 1.0,
@@ -152,6 +154,8 @@ def main(args):
     
 if __name__ == "__main__":
     args = config()
+    args.save_path = os.path.join("./outputs", args.exp_name)
+    os.makedirs(args.save_path, exist_ok=True)
     print(f"universal seed: {args.universal_seed}")
     if not torch.cuda.is_available():
         args.device = "cpu"
