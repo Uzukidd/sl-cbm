@@ -1,1 +1,0 @@
-bash _interpret_base.sh "open_clip:RN50" "integrated_gradient" "$1" "$2" "$3"

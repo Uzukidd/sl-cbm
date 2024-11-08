@@ -5,6 +5,7 @@ import numpy as np
 import pickle as pkl
 import json
 import time
+from datetime import datetime
 from tqdm import tqdm
 from typing import Tuple, Callable, Union, Dict
 
@@ -45,6 +46,7 @@ def config():
     parser.add_argument("--batch-size", default=1, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
     
+    parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
     parser.add_argument('--save-100-local', action='store_true')
 
 
@@ -113,16 +115,17 @@ def main(args):
         if args.save_100_local:
             if count == 100:
                 break
+            save_to = os.path.join(args.save_path, f"{args.explain_method}/{args.concept_target}_images")
             viz_attn(batch_X,
                     attributions,
                     blur=True,
                     prefix=f"{idx:03d}",
-                    save_to=f"data/{args.explain_method}/{args.concept_target}_images")
+                    save_to=save_to)
             try:
                 captum_vis_attn(batch_X, 
                                 attributions, 
                                 title=f"{dataset.idx_to_class[batch_Y.item()]}-attributions: {args.concept_target}",
-                                save_to=f'data/{args.explain_method}/{args.concept_target}_images/{idx:03d}-captum-image.jpg')
+                                save_to=os.path.join(save_to, f"{idx:03d}-captum-image.jpg"))
             except:
                 pass
                
@@ -152,6 +155,8 @@ def main(args):
     
 if __name__ == "__main__":
     args = config()
+    args.save_path = os.path.join("./outputs", args.exp_name)
+    os.makedirs(args.save_path, exist_ok=True)
     print(f"universal seed: {args.universal_seed}")
     if not torch.cuda.is_available():
         args.device = "cpu"

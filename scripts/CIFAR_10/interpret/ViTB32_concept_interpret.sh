@@ -1,0 +1,2 @@
+bash _interpret_base.sh "clip:ViT-B/32" "integrated_gradient" "$1" "$2" "$3"
+bash _interpret_base.sh "clip:ViT-B/32" "layer_grad_cam_vit" "$1" "$2" "$3"

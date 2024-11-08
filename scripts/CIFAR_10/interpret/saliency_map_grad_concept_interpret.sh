@@ -1,1 +1,0 @@
-bash _interpret_base.sh "clip:RN50" "saliency_map" "$1" "$2" "$3"

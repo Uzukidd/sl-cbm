@@ -1,1 +1,0 @@
-bash _interpret_base.sh "open_clip:RN50" "layer_grad_cam" "$1" "$2" "$3"

@@ -1,1 +1,0 @@
-bash _interpret_base.sh "clip:RN50" "guided_grad_cam" "$1" "$2" "$3"

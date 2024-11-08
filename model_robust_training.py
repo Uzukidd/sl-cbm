@@ -28,7 +28,7 @@ from pcbm.models import PosthocLinearCBM, get_model
 
 from captum.attr import visualization, GradientAttribution, LayerAttribution
 from utils import *
-from asgt import robust_training
+from asgt import robust_training, ASGT_Legacy
 
 
 def config():
@@ -105,7 +105,8 @@ def main(args):
     preprocess = transforms.Compose(preprocess.transforms[:-1])
     
     posthoc_layer = load_pcbm(args)
-    trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader = load_dataset(args, preprocess)
+    dataset = load_dataset(args, preprocess)
+    args.data_size = dataset.trainset[0][0].size()
     
     model_context = model_pipeline(concept_bank = concept_bank, 
                    posthoc_layer = posthoc_layer, 
@@ -122,6 +123,8 @@ def main(args):
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
     
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    
+    print(f"data size: {args.data_size}")
     asgt_module = robust_training(model = model, 
                        training_forward_func = partial(training_forward_func,
                                                        model = model,
@@ -132,24 +135,38 @@ def main(args):
                                               explain_algorithm=explain_algorithm),
                        robust_loss_func=args.train_method,
                        eps = args.eps,
-                       k = int(224 * 224 * args.k),
+                       k = int(args.data_size[-1] * args.data_size[-2] * args.k),
                        lam = 1.0,
                        feature_range= (0.0, 1.0),
                        device=torch.device(args.device))
     
-    asgt_module.evaluate_model(train_loader)
-    asgt_module.evaluate_model(test_loader)
-    asgt_module.evaluate_model_robustness(test_loader)
+    # asgt_module = ASGT_Legacy(model = model, 
+    #                    training_forward_func = partial(training_forward_func,
+    #                                                    model = model,
+    #                                                    optimizer = optimizer),
+    #                    loss_func = nn.CrossEntropyLoss(),
+    #                    attak_func="FGSM",
+    #                    explain_func = partial(explain_algorithm_forward, 
+    #                                           explain_algorithm=explain_algorithm),
+    #                    eps = args.eps,
+    #                    k = int(args.data_size[-1] * args.data_size[-2] * args.k),
+    #                    lam = 1.0,
+    #                    feature_range= (0.0, 1.0),
+    #                    device=torch.device(args.device))
+    
+    asgt_module.evaluate_model(dataset.train_loader)
+    asgt_module.evaluate_model(dataset.test_loader)
+    asgt_module.evaluate_model_robustness(dataset.test_loader)
         
-    num_epoches = 20
+    num_epoches = 10
     for epoch in range(num_epoches):
-        running_loss = asgt_module.train_one_epoch(train_loader)
-        print(f"Epoch [{epoch + 1}/{num_epoches}], Loss: {running_loss / len(train_loader):.4f}")
+        running_loss = asgt_module.train_one_epoch(dataset.train_loader)
+        print(f"Epoch [{epoch + 1}/{num_epoches}], Loss: {running_loss / len(dataset.train_loader):.4f}")
         getattr(save_checkpoint, backbone_arch)(args=args, 
                                                 model = model)
-        asgt_module.evaluate_model(train_loader)
-        asgt_module.evaluate_model(test_loader)
-        robustness = asgt_module.evaluate_model_robustness(test_loader)
+        asgt_module.evaluate_model(dataset.train_loader)
+        asgt_module.evaluate_model(dataset.test_loader)
+        robustness = asgt_module.evaluate_model_robustness(dataset.test_loader)
     
     
 if __name__ == "__main__":
