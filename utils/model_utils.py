@@ -56,7 +56,9 @@ class ResNetTop(nn.Module):
 class PCBM_Net(nn.Module):
     def __init__(self, model_context:model_pipeline, 
                  output_class:bool=False, 
-                 output_logit:bool=False):
+                 output_logit:bool=False,
+                 output_embedding:bool=False,
+                 output_concepts:bool=False):
         super().__init__()
         self.normalizer = model_context.normalizer
         self.backbone = model_context.backbone
@@ -64,22 +66,66 @@ class PCBM_Net(nn.Module):
         
         self.output_class = output_class
         self.output_logit = output_logit
+        self.output_embedding = output_embedding
+        self.output_concepts = output_concepts
         
-    def forward(self, input_x:torch.Tensor):
-        assert not(self.output_class and self.output_logit)
+    def output_type(self, type:str):
+        self.output_class = False
+        self.output_logit = False
+        self.output_embedding = False
+        self.output_concepts = False
+        
+        setattr(self, 
+                f"output_{type}", 
+                True)
+        
+    def forward(self, 
+                input_x:torch.Tensor):
+        assert (int(self.output_class) + int(self.output_logit) + int(self.output_embedding)) <= 1
         batch_X_normalized = self.normalizer(input_x)
         embeddings = self.backbone.encode_image(batch_X_normalized)
+        
+        if self.output_embedding:
+            return embeddings
+        
         concept_projs = self.posthoc_layer.compute_dist(embeddings)
         
         if self.output_class:
-           return self.posthoc_layer.forward_projs(concept_projs).argmax(1)
+            return self.posthoc_layer.forward_projs(concept_projs).argmax(1)
        
         if self.output_logit:
-           return self.posthoc_layer.forward_projs(concept_projs)
+            return self.posthoc_layer.forward_projs(concept_projs)
+       
+        if self.output_concepts:
+            return concept_projs
+    
+    def embed(self, 
+              input_x:torch.Tensor) -> torch.Tensor:
+        batch_X_normalized = self.normalizer(input_x)
+        embeddings = self.backbone.encode_image(batch_X_normalized)
+        
+        return embeddings
+    
+    def comput_dist(self,
+                    embeddings:torch.Tensor) -> torch.Tensor:
+        concept_projs = self.posthoc_layer.compute_dist(embeddings)
         
         return concept_projs
     
-    def output_as_class(self, input_x:torch.Tensor):
+    def forward_projs(self,
+                      concept_projs:torch.Tensor) -> torch.Tensor:
+        return self.posthoc_layer.forward_projs(concept_projs)
+    
+    def output_as_logit(self, 
+                        input_x:torch.Tensor) -> torch.Tensor:
+        batch_X_normalized = self.normalizer(input_x)
+        embeddings = self.backbone.encode_image(batch_X_normalized)
+        concept_projs = self.posthoc_layer.compute_dist(embeddings)
+
+        return self.posthoc_layer.forward_projs(concept_projs)
+    
+    def output_as_class(self, 
+                        input_x:torch.Tensor) -> torch.Tensor:
         batch_X_normalized = self.normalizer(input_x)
         embeddings = self.backbone.encode_image(batch_X_normalized)
         concept_projs = self.posthoc_layer.compute_dist(embeddings)

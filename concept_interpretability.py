@@ -38,6 +38,7 @@ def config():
     
     parser.add_argument("--pcbm-ckpt", required=True, type=str, help="Path to the PCBM checkpoint")
     parser.add_argument("--explain-method", required=True, type=str)
+    parser.add_argument("--concept-pooling", default="max_pooling_class_wise", type=str)
     parser.add_argument("--concept-target", required=True, type=str)
     parser.add_argument("--class-target", default="", type=str)
     
@@ -70,7 +71,8 @@ class concept_select_func:
         
         return model_context.concept_bank.concept_names.index(int(concept_target))
     
-def main(args):
+    
+def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)
     concept_bank = load_concept_bank(args)
     backbone, preprocess = load_backbone(args)
@@ -86,12 +88,13 @@ def main(args):
                    normalizer = normalizer, 
                    backbone = backbone)
     posthoc_concept_net = PCBM_Net(model_context=model_context)
+    posthoc_concept_net.output_type("concepts")
     
-    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(args = args, 
-                                                                  posthoc_concept_net = posthoc_concept_net)
+    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(posthoc_concept_net = posthoc_concept_net)
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
+    attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
     targeted_concept_idx = getattr(concept_select_func, args.dataset)(model_context, args.concept_target)
-    print(targeted_concept_idx)
+    args.logger.info(targeted_concept_idx)
     
     count = 0
     for idx, data in tqdm(enumerate(dataset.test_loader), 
@@ -111,7 +114,10 @@ def main(args):
         attributions:torch.Tensor = explain_algorithm_forward(batch_X=batch_X, 
                                                               explain_algorithm=explain_algorithm,
                                                               target=targeted_concept_idx)
-        
+        attributions = attribution_pooling(batch_X = batch_X,
+                                           attributions = attributions,
+                                           concept_idx = targeted_concept_idx,
+                                           pcbm_net = posthoc_concept_net)
         if args.save_100_local:
             if count == 100:
                 break
@@ -157,9 +163,14 @@ if __name__ == "__main__":
     args = config()
     args.save_path = os.path.join("./outputs", args.exp_name)
     os.makedirs(args.save_path, exist_ok=True)
-    print(f"universal seed: {args.universal_seed}")
+    
+    args.logger = common_utils.create_logger(log_file = os.path.join(args.save_path, "exp_log.log"))
+    args_dict = vars(args)
+    args_json = json.dumps(args_dict, indent=4)
+    args.logger.info(args_json)
+    args.logger.info(f"universal seed: {args.universal_seed}")
     if not torch.cuda.is_available():
         args.device = "cpu"
-        print(f"GPU devices failed. Change to {args.device}")
+        args.logger.info(f"GPU devices failed. Change to {args.device}")
     main(args)
     

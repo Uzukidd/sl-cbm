@@ -10,14 +10,14 @@ def reduce_attn_as_numpy(batch_X:torch.Tensor, attributions:torch.Tensor) -> Tup
     """
     Args:
         batch_X: [1, C, W, H]
-        attributions: [B, C, W, H]
+        attributions: [C, W, H]
     
     Returns:
         batch_X: [W, H, C]
         attributions: [W, H, C]
     """
     return batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(),\
-        attributions.max(0)[0].permute((1, 2, 0)).detach().cpu().numpy()
+        attributions.permute((1, 2, 0)).detach().cpu().numpy()
                 
 
 def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):

@@ -3,6 +3,8 @@ import random
 import numpy as np
 import pickle as pkl
 import json
+import logging
+
 from tqdm import tqdm
 from typing import Tuple, Callable, Union, Optional, Dict
 from dataclasses import dataclass
@@ -13,7 +15,7 @@ import clip
 import torch
 import torch.nn as nn
 from torchvision import datasets
-from torch.utils.data  import DataLoader, Dataset
+from torch.utils.data  import DataLoader, Dataset, Sampler
 import torchvision.transforms as transforms
 
 from pcbm.learn_concepts_multimodal import *
@@ -47,8 +49,22 @@ class dataset_collection:
     idx_to_class:Dict[int ,str]
     train_loader:DataLoader
     test_loader:DataLoader
-    
-def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:transforms.Compose):
+
+
+class class_specific_sampler(Sampler):
+    def __init__(self, dataset:Dataset, target_class:int):
+        self.dataset = dataset
+        self.target_class = target_class
+        self.indices = np.where(np.array(dataset.targets) == target_class)[0]
+
+    def __iter__(self):
+        return iter(self.indices)
+
+    def __len__(self):
+        return len(self.indices)
+
+def load_dataset(args:Union[argparse.Namespace, dataset_configure], 
+                 preprocess:transforms.Compose, target_class:Optional[int]=None):
     trainset, testset = None, None
     if isinstance(args, argparse.Namespace):
         args = dataset_configure(
@@ -63,12 +79,21 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:t
         testset = datasets.CIFAR10(root=dataset_constants.CIFAR10_DIR, train=False,
                                     download=False, transform=preprocess)
         classes = trainset.classes
+        
+        train_sampler = None
+        test_sampler = None
+        if target_class is not None:
+            train_sampler = class_specific_sampler(trainset, target_class)
+            test_sampler = class_specific_sampler(testset, target_class)
+        
         class_to_idx = {c: i for (i,c) in enumerate(classes)}
         idx_to_class = {v: k for k, v in class_to_idx.items()}
         train_loader = DataLoader(trainset, batch_size=args.batch_size,
-                                              shuffle=True, num_workers=args.num_workers)
+                                    sampler = train_sampler,
+                                    shuffle=False, num_workers=args.num_workers)
         test_loader = DataLoader(testset, batch_size=args.batch_size,
-                                          shuffle=False, num_workers=args.num_workers)
+                                    sampler = test_sampler,
+                                    shuffle=False, num_workers=args.num_workers)
     
     
     elif args.dataset == "cifar100":
@@ -77,12 +102,21 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:t
         testset = datasets.CIFAR100(root=dataset_constants.CIFAR100_DIR, train=False,
                                     download=False, transform=preprocess)
         classes = trainset.classes
+        
+        train_sampler = None
+        test_sampler = None
+        if target_class is not None:
+            train_sampler = class_specific_sampler(trainset, target_class)
+            test_sampler = class_specific_sampler(testset, target_class)
+        
         class_to_idx = {c: i for (i,c) in enumerate(classes)}
         idx_to_class = {v: k for k, v in class_to_idx.items()}
         train_loader = DataLoader(trainset, batch_size=args.batch_size,
-                                              shuffle=True, num_workers=args.num_workers)
+                                    sampler = train_sampler,
+                                    shuffle=False, num_workers=args.num_workers)
         test_loader = DataLoader(testset, batch_size=args.batch_size,
-                                          shuffle=False, num_workers=args.num_workers)
+                                    sampler = test_sampler,
+                                    shuffle=False, num_workers=args.num_workers)
 
 
     elif args.dataset == "cub":
@@ -91,6 +125,9 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure], preprocess:t
         num_classes = 200
         TRAIN_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "train.pkl")
         TEST_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "test.pkl")
+        if target_class is not None:
+            raise NotImplementedError
+        
         trainset, train_loader = load_cub_data([TRAIN_PKL], use_attr=False, no_img=False, 
             batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_constants.CUB_DATA_DIR, resol=224, normalizer=None,
             n_classes=num_classes, resampling=True)
@@ -165,7 +202,7 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
             backbone_ckpt = args.backbone_ckpt,
             device = args.device
         )
-    
+    print(args.backbone_name)
     if "open_clip" in args.backbone_name:
         import open_clip
         clip_backbone_name = args.backbone_name.split(":")[1]
@@ -271,6 +308,22 @@ def load_model_pipeline(args:argparse.Namespace):
                    normalizer = normalizer, 
                    backbone = backbone)
     posthoc_concept_net = PCBM_Net(model_context=model_context)
+
+def create_logger(log_file=None, rank=0, log_level=logging.INFO):
+    logger = logging.getLogger(__name__)
+    logger.setLevel(log_level if rank == 0 else 'ERROR')
+    formatter = logging.Formatter('%(asctime)s  %(levelname)5s  %(message)s')
+    console = logging.StreamHandler()
+    console.setLevel(log_level if rank == 0 else 'ERROR')
+    console.setFormatter(formatter)
+    logger.addHandler(console)
+    if log_file is not None:
+        file_handler = logging.FileHandler(filename=log_file)
+        file_handler.setLevel(log_level if rank == 0 else 'ERROR')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    logger.propagate = False
+    return logger
 
 def topK_concept_to_name(args, pcbm_net,
                          batch_X:torch.Tensor,

@@ -28,7 +28,7 @@ from pcbm.models import PosthocLinearCBM, get_model
 
 from captum.attr import visualization, GradientAttribution, LayerAttribution
 from utils import *
-from asgt import robust_training, ASGT_Legacy
+from asgt import attack_utils
 
 
 def config():
@@ -60,52 +60,40 @@ def config():
 
     return parser.parse_args()
 
-# main_cocnept_classes = {
-#     "airplane" : "propellers",
-#     "automobile" : "windshield",
-#     "bird" : "beak",
-#     "cat" : "sharp claws",
-#     "deer" : "antler",
-#     "dog" : "paws",
-#     "frog" : "amphibian",
-#     "horse" : "horseback",
-#     "ship" : "porthole",
-#     "truck" : "an engine"
-# }
 
-# def embedding_robust_loss_func(context:robust_training,
-#                                 batch_X:torch.Tensor,
-#                                 batch_Y:torch.Tensor):
-#     import pdb; pdb.set_trace()
-#     context.model.eval()
-#     embedding_Y = context.model(batch_X)
-#     batch_adv_X = context.generate_adv_sample(batch_X, embedding_Y)
-#     # masked_batch_adv_X = self.generate_masked_sample(batch_adv_X, batch_Y)
-    
-#     # self.model.train()
-#     # clean_logit = self.model(batch_X)
-#     # adv_logit = self.model(batch_adv_X)
-#     # masked_adv_logit = self.model(masked_batch_adv_X)
-    
-#     # clean_prob_log = nn.functional.log_softmax(clean_logit, dim=1)
-#     # masked_adv_prob_log = nn.functional.log_softmax(masked_adv_logit, dim=1)
-    
-#     # loss = self.loss_func(clean_logit, batch_Y) \
-#     #         + self.loss_func(adv_logit, batch_Y) \
-#     #         + self.lam * nn.functional.kl_div(clean_prob_log, 
-#     #                                             masked_adv_prob_log, 
-#     #                                             reduction='batchmean', 
-#     #                                             log_target=True)
-#     # embedding_loss = 
-    
 def training_forward_func(loss:torch.Tensor, 
                           model:nn.Module, 
                           optimizer:optim.Optimizer):
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+    
+class concept_select_func:
+    clip10_main_cocnept_classes = {
+        "airplane" : "propellers",
+        "automobile" : "windshield",
+        "bird" : "beak",
+        "cat" : "sharp claws",
+        "deer" : "antler",
+        "dog" : "paws",
+        "frog" : "amphibian",
+        "horse" : "horseback",
+        "ship" : "porthole",
+        "truck" : "an engine"
+    }
+    
+    @staticmethod
+    def cifar10(args:argparse.Namespace,
+            dataset:dataset_collection,
+            model_context:model_pipeline):
+        class_to_idx = dataset.class_to_idx
+        concept_names = model_context.concept_bank.concept_names
+        main_cocnept_classes = {class_to_idx[keys]: concept_names.index(vals)
+                                                 for keys, vals in __class__.clip10_main_cocnept_classes.items()}
+        
+        return main_cocnept_classes
 
-class get_classification_model:
+class get_embedding_model:
     
     @staticmethod
     def clip(args:argparse.Namespace,
@@ -152,7 +140,7 @@ class save_checkpoint:
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)
     concept_bank = load_concept_bank(args)
-    backbone, preprocess = load_backbone(args, full_load=not args.train_embedding)
+    backbone, preprocess = load_backbone(args)
 
     normalizer = transforms.Compose(preprocess.transforms[-1:])
     preprocess = transforms.Compose(preprocess.transforms[:-1])
@@ -170,7 +158,7 @@ def main(args:argparse.Namespace):
     
     # Get a trainable model
     backbone_arch = args.backbone_name.split(":")[0]
-    model:nn.Module = getattr(get_classification_model, backbone_arch)(args = args, model_context=model_context,)
+    model:nn.Module = getattr(get_embedding_model, backbone_arch)(args = args, model_context=model_context,)
     
     # Get explain algorithm
     explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(posthoc_concept_net = model)
@@ -178,23 +166,33 @@ def main(args:argparse.Namespace):
     
     # Prepare training module
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    loss_func = nn.CrossEntropyLoss()
     
+    classification_attak_func = attack_utils.FGSM(model, nn.CrossEntropyLoss(), eps = args.eps)
+    embedding_attak_func = attack_utils.PGD(model, nn.MSELoss(reduction="sum"), 
+                                            alpha= args.eps/10, 
+                                            random_start=True,
+                                            epoch=10, 
+                                            eps = args.eps)
+    
+    targeted_concept_idx = getattr(concept_select_func, args.dataset)(args = args, 
+                                                                      dataset = dataset,
+                                                                      model_context = model_context)
+    print(targeted_concept_idx)
+
     print(f"data size: {args.data_size}")
-    asgt_module = robust_training(model = model, 
-                       training_forward_func = partial(training_forward_func,
-                                                       model = model,
-                                                       optimizer = optimizer),
-                       loss_func = loss_func,
-                       attak_func="FGSM",
-                       explain_func = partial(explain_algorithm_forward, 
-                                              explain_algorithm=explain_algorithm),
-                       robust_loss_func=args.train_method,
-                       eps = args.eps,
-                       k = int(args.data_size[-1] * args.data_size[-2] * args.k),
-                       lam = 1.0,
-                       feature_range= (0.0, 1.0),
-                       device=torch.device(args.device))
+    asgt_module = embedding_robust_training(model = model, 
+                                        training_forward_func = partial(training_forward_func,
+                                                                        model = model,
+                                                                        optimizer = optimizer),
+                                        classification_attak_func=classification_attak_func,
+                                        embedding_attak_func=embedding_attak_func,
+                                        explain_func = partial(explain_algorithm_forward, 
+                                                                explain_algorithm=explain_algorithm),
+                                        targeted_concept_idx = targeted_concept_idx,
+                                        k = int(args.data_size[-1] * args.data_size[-2] * args.k),
+                                        lam = 1.0,
+                                        feature_range= (0.0, 1.0),
+                                        device=torch.device(args.device))
     
     # asgt_module = ASGT_Legacy(model = model, 
     #                    training_forward_func = partial(training_forward_func,
@@ -210,12 +208,13 @@ def main(args:argparse.Namespace):
     #                    feature_range= (0.0, 1.0),
     #                    device=torch.device(args.device))
     
-    asgt_module.evaluate_model(dataset.train_loader)
-    asgt_module.evaluate_model(dataset.test_loader)
-    asgt_module.evaluate_model_robustness(dataset.test_loader)
-    asgt_module.evaluate_embedding_robustness()
-        
-    num_epoches = 10
+    # asgt_module.evaluate_model(dataset.train_loader)
+    # asgt_module.evaluate_model(dataset.test_loader)
+    # asgt_module.evaluate_model_robustness(dataset.test_loader)
+    # asgt_module.evaluate_embedding_robustness(dataset.test_loader)
+
+    
+    num_epoches = 5
     for epoch in range(num_epoches):
         running_loss = asgt_module.train_one_epoch(dataset.train_loader)
         print(f"Epoch [{epoch + 1}/{num_epoches}], Loss: {running_loss / len(dataset.train_loader):.4f}")
@@ -223,22 +222,17 @@ def main(args:argparse.Namespace):
                                                 model = model)
         asgt_module.evaluate_model(dataset.train_loader)
         asgt_module.evaluate_model(dataset.test_loader)
-        robustness = asgt_module.evaluate_model_robustness(dataset.test_loader)
+        asgt_module.evaluate_model_robustness(dataset.test_loader)
+        asgt_module.evaluate_embedding_robustness(dataset.test_loader)
     
     
 if __name__ == "__main__":
     args = config()
     args.save_path = os.path.join("./outputs", args.exp_name)
     os.makedirs(args.save_path, exist_ok=True)
-    
-    args.logger = common_utils.create_logger(log_file = os.path.join(args.save_path, "exp_log.log"))
-    args_dict = vars(args)
-    args_json = json.dumps(args_dict, indent=4)
-    args.logger.info(args_json)
-    
-    args.logger.info(f"universal seed: {args.universal_seed}")
+    print(f"universal seed: {args.universal_seed}")
     if not torch.cuda.is_available():
         args.device = "cpu"
-        args.logger.info(f"GPU devices failed. Change to {args.device}")
+        print(f"GPU devices failed. Change to {args.device}")
     main(args)
     
