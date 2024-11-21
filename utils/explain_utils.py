@@ -132,45 +132,55 @@ class model_explain_algorithm_factory:
         return layer_grad_cam
     
 class model_explain_algorithm_forward:
+
+    @staticmethod
+    def batch_X_expand(batch_X:torch.Tensor,
+                       target:Union[torch.Tensor|int]):
+        """
+            batch_X: [B, C, W, H] or batch_X: [1, C, W, H]
+            target: [B, C] or target: [C]
+        """
+        # if target.size().__len__() == 2:
+        #     expanded_batch_X = batch_X.unsqueeze(1).expand(-1, target.size(1), -1, -1, -1)
+        #     expanded_batch_X = expanded_batch_X.reshape(-1, batch_X.size(-3), batch_X.size(-2), batch_X.size(-1))
+        #     target = target.view(-1)
+
+
+        if batch_X.size() == 1 and isinstance(target, torch.Tensor):
+            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
+        
+        return batch_X, target
     
     @staticmethod
     def saliency_map(batch_X:torch.Tensor,
                             explain_algorithm:Saliency,
                             target:Union[torch.Tensor|int]):
-        if isinstance(target, torch.Tensor):
-            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
-
-        attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target, abs=False)
+        expanded_batch_X, target = __class__.batch_X_expand(batch_X, target)
+        attributions:torch.Tensor = explain_algorithm.attribute(expanded_batch_X, target=target, abs=False)
         return attributions
     
     @staticmethod
     def integrated_gradient(batch_X:torch.Tensor,
                             explain_algorithm:IntegratedGradients,
                             target:Union[torch.Tensor|int]):
-        if isinstance(target, torch.Tensor):
-            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
-
-        attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
+        expanded_batch_X, target = __class__.batch_X_expand(batch_X, target)
+        attributions:torch.Tensor = explain_algorithm.attribute(expanded_batch_X, target=target)
         return attributions
     
     @staticmethod
     def guided_grad_cam(batch_X:torch.Tensor,
                             explain_algorithm:GuidedGradCam,
                             target:Union[torch.Tensor|int]):
-        if isinstance(target, torch.Tensor):
-            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
-
-        attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
+        expanded_batch_X, target = __class__.batch_X_expand(batch_X, target)
+        attributions:torch.Tensor = explain_algorithm.attribute(expanded_batch_X, target=target)
         return attributions
     
     @staticmethod
     def layer_grad_cam(batch_X:torch.Tensor,
                             explain_algorithm:LayerGradCam,
                             target:Union[torch.Tensor|int]):
-        if isinstance(target, torch.Tensor):
-            batch_X = batch_X.expand(target.size(0), -1, -1, -1)
-
-        attributions:torch.Tensor = explain_algorithm.attribute(batch_X, target=target)
+        expanded_batch_X, target = __class__.batch_X_expand(batch_X, target)
+        attributions:torch.Tensor = explain_algorithm.attribute(expanded_batch_X, target=target)
         upsampled_attr = LayerAttribution.interpolate(attributions, batch_X.size()[-2:], interpolate_mode="bicubic")
         return upsampled_attr
     
@@ -190,7 +200,7 @@ class attribution_pooling_forward:
                                concept_idx:Union[torch.Tensor, int],
                                pcbm_net:PCBM_Net):
         if isinstance(concept_idx, int):
-            return attributions
+            return attributions.squeeze(0)
         
         max_concept_idx = pcbm_net(batch_X)[0, concept_idx].argmax()
         return attributions[max_concept_idx]

@@ -5,6 +5,7 @@ import numpy as np
 import pickle as pkl
 import json
 import time
+import subprocess
 from datetime import datetime
 from tqdm import tqdm
 from typing import Tuple, Callable, Union, Dict
@@ -49,6 +50,7 @@ def config():
     
     parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
     parser.add_argument('--save-100-local', action='store_true')
+    parser.add_argument('--zip', action='store_true')
 
 
     return parser.parse_args()
@@ -161,16 +163,21 @@ def main(args:argparse.Namespace):
     
 if __name__ == "__main__":
     args = config()
-    args.save_path = os.path.join("./outputs", args.exp_name)
+    args.save_path = os.path.join("./outputs/evals", args.exp_name)
     os.makedirs(args.save_path, exist_ok=True)
     
-    args.logger = common_utils.create_logger(log_file = os.path.join(args.save_path, "exp_log.log"))
     args_dict = vars(args)
     args_json = json.dumps(args_dict, indent=4)
+    
+    args.logger = common_utils.create_logger(log_file = os.path.join(args.save_path, "exp_log.log"))
     args.logger.info(args_json)
     args.logger.info(f"universal seed: {args.universal_seed}")
     if not torch.cuda.is_available():
         args.device = "cpu"
         args.logger.info(f"GPU devices failed. Change to {args.device}")
     main(args)
+
+    if args.zip:
+        command = ["zip", "-r", args.save_path + ".zip", args.save_path]
+        subprocess.run(command, check=True)
     

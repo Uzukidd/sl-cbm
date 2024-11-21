@@ -50,6 +50,8 @@ def config():
     parser.add_argument("--train-method", required=True, type=str)
     parser.add_argument("--train-embedding", action='store_true')
     
+    parser.add_argument("--regular", required=True, type=str)
+    
     parser.add_argument("--lr", default=1e-4, type=float)
     parser.add_argument("--eps", default=0.025, type=float)
     parser.add_argument("--k", default=1e-1, type=float)
@@ -86,10 +88,14 @@ class concept_select_func:
     def cifar10(args:argparse.Namespace,
             dataset:dataset_collection,
             model_context:model_pipeline):
-        class_to_idx = dataset.class_to_idx
-        concept_names = model_context.concept_bank.concept_names
-        main_cocnept_classes = {class_to_idx[keys]: concept_names.index(vals)
-                                                 for keys, vals in __class__.clip10_main_cocnept_classes.items()}
+        weights = model_context.posthoc_layer.classifier.weight.clone().detach()
+        main_cocnept_classes = {}
+        for idx, cls in model_context.posthoc_layer.idx_to_class.items():
+            cls_weights = weights[idx]
+            topk_vals, topk_indices = torch.topk(cls_weights, k=5)
+            topk_indices = topk_indices.detach()
+            main_cocnept_classes[idx] = topk_indices
+                                                 
         
         return main_cocnept_classes
 
@@ -188,6 +194,7 @@ def main(args:argparse.Namespace):
                                         embedding_attak_func=embedding_attak_func,
                                         explain_func = partial(explain_algorithm_forward, 
                                                                 explain_algorithm=explain_algorithm),
+                                        regularization=args.regular,
                                         targeted_concept_idx = targeted_concept_idx,
                                         k = int(args.data_size[-1] * args.data_size[-2] * args.k),
                                         lam = 1.0,
@@ -228,8 +235,15 @@ def main(args:argparse.Namespace):
     
 if __name__ == "__main__":
     args = config()
-    args.save_path = os.path.join("./outputs", args.exp_name)
+    args.save_path = os.path.join("./outputs/trains", args.exp_name)
     os.makedirs(args.save_path, exist_ok=True)
+    
+    args_dict = vars(args)
+    args_json = json.dumps(args_dict, indent=4)
+    
+    args.logger = common_utils.create_logger(log_file = os.path.join(args.save_path, "exp_log.log"))
+    args.logger.info(args_json)
+    
     print(f"universal seed: {args.universal_seed}")
     if not torch.cuda.is_available():
         args.device = "cpu"

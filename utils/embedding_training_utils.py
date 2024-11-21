@@ -22,6 +22,7 @@ class embedding_robust_training:
                  classification_attak_func:Callable,
                  embedding_attak_func:Callable,
                  explain_func:Callable,
+                 regularization:str,
                  targeted_concept_idx:Union[Dict[int, int], torch.Tensor],
                  k:int,
                  lam:float,
@@ -47,78 +48,50 @@ class embedding_robust_training:
         
         if isinstance(self.targeted_concept_idx, dict):
             max_key = max(targeted_concept_idx.keys())
-            mapping_tensor = torch.empty(max_key + 1, dtype=torch.int64).to(device)
+            max_indices = list(targeted_concept_idx.values())[0].size(0)
+            mapping_tensor = torch.empty((max_key + 1, max_indices), dtype=torch.int64).to(device)
             for k, v in targeted_concept_idx.items():
                 mapping_tensor[k] = v
             
             self.targeted_concept_idx = mapping_tensor
+            
+        self.regularization_loss_func:Optional[Callable[..., torch.Tensor]] = None
+        if regularization is not None:
+            self.regularization_loss_func = getattr(self, f"_regular_func_{regularization}")
         
         print(self.targeted_concept_idx)
-
+    
+    def _regular_func_concept_KL_div(self, clean_embedding:torch.Tensor,
+                                     adv_embedding:torch.Tensor,
+                                     masked_adv_embedding:torch.Tensor):
         
-    def _concept_adversarial_saliency_guided_training(self, 
-            batch_X:torch.Tensor,
-            batch_Y:torch.Tensor):
+        clean_concept_proj = self.model.comput_dist(clean_embedding)        
+        masked_adv_concept_proj = self.model.comput_dist(masked_adv_embedding)
         
-        batch_adv_X = self.generate_adv_sample(batch_X, batch_Y)
-        masked_batch_adv_X = self.generate_masked_sample(batch_adv_X, batch_Y)
-        
-        self.model.train()
-        clean_logit = self.model(batch_X)
-        adv_logit = self.model(batch_adv_X)
-        masked_adv_logit = self.model(masked_batch_adv_X)
-        
-        clean_prob_log = nn.functional.log_softmax(clean_logit, dim=1)
-        masked_adv_prob_log = nn.functional.log_softmax(masked_adv_logit, dim=1)
-        
-        loss = self.loss_func(clean_logit, batch_Y) \
-                + self.loss_func(adv_logit, batch_Y) \
-                + self.lam * nn.functional.kl_div(clean_prob_log, 
-                                                  masked_adv_prob_log, 
+        return nn.functional.kl_div(clean_concept_proj.log_softmax(dim=1), 
+                                                  masked_adv_concept_proj.log_softmax(dim=1), 
                                                   reduction='batchmean', 
                                                   log_target=True)
-
-        return loss
-
-    def _adversarial_saliency_guided_training(self, 
-            batch_X:torch.Tensor,
-            batch_Y:torch.Tensor):
-        
-        batch_adv_X = self.generate_adv_sample(batch_X, batch_Y)
-        masked_batch_adv_X = self.generate_masked_sample(batch_adv_X, batch_Y)
-        
-        self.model.train()
-        clean_logit = self.model(batch_X)
-        adv_logit = self.model(batch_adv_X)
-        masked_adv_logit = self.model(masked_batch_adv_X)
-        
-        clean_prob_log = nn.functional.log_softmax(clean_logit, dim=1)
-        masked_adv_prob_log = nn.functional.log_softmax(masked_adv_logit, dim=1)
-        
-        loss = self.loss_func(clean_logit, batch_Y) \
-                + self.loss_func(adv_logit, batch_Y) \
-                + self.lam * nn.functional.kl_div(clean_prob_log, 
-                                                  masked_adv_prob_log, 
-                                                  reduction='batchmean', 
-                                                  log_target=True)
-
-        return loss
         
     def _iterate(self, batch_X:torch.Tensor,
                       batch_Y:torch.Tensor):
+        B, C, W, H = batch_X.size()
         self.model.output_type("embedding")
         self.model.eval()
         batch_Y_concepts = self.targeted_concept_idx[batch_Y]
         original_embedding = self.model.embed(batch_X).detach()
-        batch_adv_X = self.embedding_attak_func(batch_X, original_embedding)
+        batch_adv_X:torch.Tensor = self.embedding_attak_func(batch_X, original_embedding)
         
         self.model.output_type("concepts")
-        adv_attributions = self.explain_func(batch_adv_X, target = batch_Y_concepts)
-        batch_masked_adv_x = self.generate_masked_sample(batch_adv_X, adv_attributions)
-        # captum_vis_attn(batch_X, 
-        #     adv_attribution, 
-        #     title=f"title",
-        #     save_to=None)
+        
+        expanded_batch_X = batch_X.unsqueeze(1).expand(-1, batch_Y_concepts.size(1), -1, -1, -1)
+        expanded_batch_X = expanded_batch_X.reshape(-1, C, W, H)
+        viewed_batch_Y_concepts = batch_Y_concepts.view(-1)
+
+        adv_attributions = self.explain_func(expanded_batch_X, target = viewed_batch_Y_concepts)
+        batch_masked_adv_x = self.generate_masked_sample(expanded_batch_X, adv_attributions)
+        
+
         self.model.output_type("embedding")
         self.model.train()
         clean_embedding = self.model(batch_X)
@@ -127,23 +100,15 @@ class embedding_robust_training:
         
         clean_concept_proj = self.model.comput_dist(clean_embedding)
         clean_logit = self.model.forward_projs(clean_concept_proj)
-        
-        masked_adv_concept_proj = self.model.comput_dist(masked_adv_embedding)
+
+        expanded_clean_embedding = clean_embedding.unsqueeze(1).expand(-1, batch_Y_concepts.size(1), -1).reshape(B * batch_Y_concepts.size(1), -1)
         
         loss = nn.functional.cross_entropy(clean_logit, batch_Y) \
             + nn.functional.mse_loss(clean_embedding, 
                                       adv_embedding) \
-            + self.lam * nn.functional.kl_div(clean_concept_proj.log_softmax(dim=1), 
-                                                  masked_adv_concept_proj.log_softmax(dim=1), 
-                                                  reduction='batchmean', 
-                                                  log_target=True)
-        
-        # self.model.output_type("class")
-        # print(self.model(batch_X))
-        # print(self.model(batch_adv_X))
-        # print(batch_Y)
-        # self.show_image(batch_X, batch_adv_X)
-        # import pdb; pdb.set_trace()
+            + self.lam * self.regularization_loss_func(expanded_clean_embedding, 
+                                                       adv_embedding,
+                                                       masked_adv_embedding)
 
         if self.training_forward_func is not None:
             self.training_forward_func(loss)

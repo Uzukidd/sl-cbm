@@ -55,7 +55,6 @@ def config():
     parser.add_argument("--k", default=1e-1, type=float)
     
     parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
-    parser.add_argument('--save-100-local', action='store_true')
 
 
     return parser.parse_args()
@@ -213,7 +212,6 @@ def main(args:argparse.Namespace):
     asgt_module.evaluate_model(dataset.train_loader)
     asgt_module.evaluate_model(dataset.test_loader)
     asgt_module.evaluate_model_robustness(dataset.test_loader)
-    asgt_module.evaluate_embedding_robustness()
         
     num_epoches = 10
     for epoch in range(num_epoches):
@@ -231,11 +229,11 @@ if __name__ == "__main__":
     args.save_path = os.path.join("./outputs", args.exp_name)
     os.makedirs(args.save_path, exist_ok=True)
     
-    args.logger = common_utils.create_logger(log_file = os.path.join(args.save_path, "exp_log.log"))
     args_dict = vars(args)
     args_json = json.dumps(args_dict, indent=4)
-    args.logger.info(args_json)
     
+    args.logger = common_utils.create_logger(log_file = os.path.join(args.save_path, "exp_log.log"))
+    args.logger.info(args_json)
     args.logger.info(f"universal seed: {args.universal_seed}")
     if not torch.cuda.is_available():
         args.device = "cpu"
