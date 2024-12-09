@@ -79,14 +79,17 @@ class model_explain_algorithm_factory:
         return guided_gradcam
     
     @staticmethod
-    def layer_grad_cam(posthoc_concept_net:PCBM_Net):
+    def layer_grad_cam(posthoc_concept_net:Union[PCBM_Net, CLIPWrapper]):
         layer_grad_cam = None
         backbone = posthoc_concept_net.backbone
+        if isinstance(posthoc_concept_net, CLIPWrapper):
+            posthoc_concept_net = posthoc_concept_net.backbone.visual
+
         if isinstance(backbone, CLIP):
             if isinstance(backbone.visual, ModifiedResNet):
                 layer_grad_cam = LayerGradCam(posthoc_concept_net,
-                                                getattr(backbone.visual,
-                                                        "layer4")[-1])
+                                                backbone.visual.get_submodule("layer4.2"))
+
             
             # elif isinstance(backbone.visual, VisionTransformer):
             #     image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
@@ -103,18 +106,13 @@ class model_explain_algorithm_factory:
         elif isinstance(backbone, open_clip.model.CLIP):
              if isinstance(backbone.visual, open_clip.model.ModifiedResNet):
                 layer_grad_cam = LayerGradCam(posthoc_concept_net,
-                                                getattr(backbone.visual,
-                                                        "layer4")[-1])
+                                                backbone.visual.get_submodule("layer4.2"))
             
         elif isinstance(backbone, ResNetBottom):
             layer_grad_cam = LayerGradCam(posthoc_concept_net,
-                                          backbone.get_submodule("features")
-                                            .get_submodule("0")
-                                            .get_submodule("stage4")
-                                            .get_submodule("unit2")
-                                            .get_submodule("body")
-                                            .get_submodule("conv2")
-                                            .get_submodule("conv"))
+                                          backbone.get_submodule("features.0.stage4"))
+            # layer_grad_cam = LayerGradCam(posthoc_concept_net,
+            #                               backbone.get_submodule("features.0.stage4.unit2.body.conv2.conv"))
         return layer_grad_cam
     
     @staticmethod
@@ -138,7 +136,7 @@ class model_explain_algorithm_forward:
                        target:Union[torch.Tensor|int]):
         """
             batch_X: [B, C, W, H] or batch_X: [1, C, W, H]
-            target: [B, C] or target: [C]
+            target: [C, 1]
         """
         # if target.size().__len__() == 2:
         #     expanded_batch_X = batch_X.unsqueeze(1).expand(-1, target.size(1), -1, -1, -1)
@@ -146,7 +144,7 @@ class model_explain_algorithm_forward:
         #     target = target.view(-1)
 
 
-        if batch_X.size() == 1 and isinstance(target, torch.Tensor):
+        if isinstance(target, torch.Tensor) and batch_X.size(0) == 1:
             batch_X = batch_X.expand(target.size(0), -1, -1, -1)
         
         return batch_X, target
@@ -202,7 +200,8 @@ class attribution_pooling_forward:
         if isinstance(concept_idx, int):
             return attributions.squeeze(0)
         
-        max_concept_idx = pcbm_net(batch_X)[0, concept_idx].argmax()
+        with torch.no_grad():
+            max_concept_idx = pcbm_net(batch_X)[0, concept_idx].argmax()
         return attributions[max_concept_idx]
     
     @staticmethod
@@ -340,3 +339,47 @@ class CausalMetric(nn.Module):
                 start[r, :, coords] = finish[r, :, coords]
                 start = start.view(img_batch.size())
         return scores
+
+
+# def show_mask(mask):
+#     import matplotlib.pyplot as plt
+#     mask =  mask.permute(1, 2, 0).detach().cpu().numpy()
+
+#     plt.imshow(mask)
+#     plt.axis('off')
+#     plt.show()
+
+def attribution_iou(batch_attribution:torch.Tensor, batch_attr_mask:torch.Tensor, eps=1e-10, vis:bool=False):
+    """
+        args:
+            batch_attribution: [B, ...] (non-binarized/non-positive)
+            batch_attr_mask: [B, ...] (non-binarized/non-positive)
+    """
+    def binarize(m):
+        m = m.clone()
+        m[torch.isnan(m)] = 0
+
+        max_val = torch.amax(m, dim=(1, 2, 3)).view(-1, 1, 1, 1)
+        max_val[max_val < eps] = eps
+        m = m / max_val
+        m[m>0.5] = 1
+        m[m<0.5] = 0
+        return m
+
+
+    binarized_batch_attribution = torch.maximum(batch_attribution, 
+                                                batch_attribution.new_zeros(batch_attribution.size()))
+    binarized_batch_attribution = binarize(binarized_batch_attribution)
+
+    binarized_batch_attr_mask = (batch_attr_mask > 0)
+    # if vis:
+    #     show_mask(binarized_batch_attribution[1])
+    #     show_mask(binarized_batch_attr_mask[1])
+    intersection = binarized_batch_attribution * binarized_batch_attr_mask
+    intersection = torch.sum(intersection, dim=(1, 2, 3))
+
+    union = torch.sum((binarized_batch_attribution + binarized_batch_attr_mask) > 0, dim=(1, 2, 3))
+
+    dice = (2 * intersection + eps) / (union + intersection + eps)
+    iou = (intersection + eps) / (union + eps)
+    return iou.detach(), dice.detach()

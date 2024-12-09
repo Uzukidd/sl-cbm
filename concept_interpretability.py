@@ -73,6 +73,12 @@ class concept_select_func:
         
         return model_context.concept_bank.concept_names.index(int(concept_target))
     
+    @staticmethod
+    def rival10(model_context: model_pipeline,
+                concept_target:str):
+        targeted_concept_idx = model_context.concept_bank.concept_names.index(concept_target)
+        return targeted_concept_idx
+    
     
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)

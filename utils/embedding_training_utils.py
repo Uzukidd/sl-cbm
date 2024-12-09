@@ -60,55 +60,119 @@ class embedding_robust_training:
             self.regularization_loss_func = getattr(self, f"_regular_func_{regularization}")
         
         print(self.targeted_concept_idx)
+
+    @dataclass
+    class _regular_func_context:
+        clean_embedding:torch.Tensor
+        adv_embedding:torch.Tensor
+        masked_adv_embedding:torch.Tensor
+        # [B, K]
+        batch_Y_concepts:torch.Tensor
     
-    def _regular_func_concept_KL_div(self, clean_embedding:torch.Tensor,
-                                     adv_embedding:torch.Tensor,
-                                     masked_adv_embedding:torch.Tensor):
+    def _regular_func_concept_KL_div(self, regular_func_context:_regular_func_context):
         
-        clean_concept_proj = self.model.comput_dist(clean_embedding)        
-        masked_adv_concept_proj = self.model.comput_dist(masked_adv_embedding)
+        B = regular_func_context.clean_embedding.size(0)
+        K = regular_func_context.batch_Y_concepts.size(1)
+        # clean_concept_proj [B, concept] -> [B * K, concept]
+        clean_concept_proj = self.model.comput_dist(regular_func_context.clean_embedding)
+        clean_concept_proj = clean_concept_proj.unsqueeze(1) \
+            .expand(-1, K, -1) \
+            .reshape(B * K, -1)
+
+        # masked_adv_concept_proj [B * K, concept]
+        masked_adv_concept_proj = self.model.comput_dist(regular_func_context.masked_adv_embedding)
         
         return nn.functional.kl_div(clean_concept_proj.log_softmax(dim=1), 
                                                   masked_adv_concept_proj.log_softmax(dim=1), 
                                                   reduction='batchmean', 
                                                   log_target=True)
+
+    def _regular_func_concept_mse_loss(self, regular_func_context:_regular_func_context):
+        B = regular_func_context.clean_embedding.size(0)
+        K = regular_func_context.batch_Y_concepts.size(1)
+        # clean_concept_proj [B, concept] -> [B, K, concept]
+        clean_concept_proj = self.model.comput_dist(regular_func_context.clean_embedding)
+        clean_concept_proj = clean_concept_proj.unsqueeze(1) \
+            .expand(-1, K, -1) \
+            .reshape(B * K, -1)
+
+        # masked_adv_concept_proj [B * K, concept]
+        masked_adv_concept_proj = self.model.comput_dist(regular_func_context.masked_adv_embedding)
+
+        # multi classification (explained -> concept v.s masked cocnept), cross_entropy: batch[explained] = 1 otherwise 0
+        clean_concepts_logit = torch.gather(clean_concept_proj, 1, 
+                                            regular_func_context.batch_Y_concepts)
+        masked_adv_concepts_logit = torch.gather(masked_adv_concept_proj, 1, 
+                                                 regular_func_context.batch_Y_concepts)
+
+        
+        return nn.functional.mse_loss(clean_concepts_logit, 
+                                      masked_adv_concepts_logit)
+    
+    def _regular_func_concept_cross_entropy(self, regular_func_context:_regular_func_context):
+        B = regular_func_context.clean_embedding.size(0)
+        K = regular_func_context.batch_Y_concepts.size(1)
+
+        # masked_adv_concept_proj [B * K, concept]
+        masked_adv_concept_proj = self.model.comput_dist(regular_func_context.masked_adv_embedding)
+
+        # multi classification (explained -> concept v.s masked cocnept), cross_entropy: batch[explained] = 1 otherwise 0
+        return nn.functional.cross_entropy(masked_adv_concept_proj, 
+                                      regular_func_context.batch_Y_concepts.view(-1))
         
     def _iterate(self, batch_X:torch.Tensor,
                       batch_Y:torch.Tensor):
         B, C, W, H = batch_X.size()
+
+        # Embedding adversarial attack
         self.model.output_type("embedding")
         self.model.eval()
-        batch_Y_concepts = self.targeted_concept_idx[batch_Y]
         original_embedding = self.model.embed(batch_X).detach()
         batch_adv_X:torch.Tensor = self.embedding_attak_func(batch_X, original_embedding)
         
+
         self.model.output_type("concepts")
-        
-        expanded_batch_X = batch_X.unsqueeze(1).expand(-1, batch_Y_concepts.size(1), -1, -1, -1)
+        # batch_Y_concepts [B, K]
+        batch_Y_concepts = self.targeted_concept_idx[batch_Y]
+
+        # batch_X [B, C, W, H] -> [B, 1, C, W, H] -> [B, K, C, W, H] -> [B * K, C, W, H]
+        expanded_batch_X = batch_X.unsqueeze(1) \
+            .expand(-1, batch_Y_concepts.size(1), -1, -1, -1)
         expanded_batch_X = expanded_batch_X.reshape(-1, C, W, H)
+
+        # viewed_batch_Y_concepts [B * K]
         viewed_batch_Y_concepts = batch_Y_concepts.view(-1)
 
+        # adv_attributions [B * K, C, W, H]
         adv_attributions = self.explain_func(expanded_batch_X, target = viewed_batch_Y_concepts)
+
+        # adv_attributions [B * K, C, W, H]
         batch_masked_adv_x = self.generate_masked_sample(expanded_batch_X, adv_attributions)
         
 
         self.model.output_type("embedding")
         self.model.train()
+        # batch_X [B, C, W, H]
         clean_embedding = self.model(batch_X)
+
+        # batch_adv_X [B, C, W, H]
         adv_embedding = self.model(batch_adv_X)
+
+        # batch_masked_adv_x [B * K, C, W, H]
         masked_adv_embedding = self.model(batch_masked_adv_x)
         
         clean_concept_proj = self.model.comput_dist(clean_embedding)
         clean_logit = self.model.forward_projs(clean_concept_proj)
 
-        expanded_clean_embedding = clean_embedding.unsqueeze(1).expand(-1, batch_Y_concepts.size(1), -1).reshape(B * batch_Y_concepts.size(1), -1)
+
         
         loss = nn.functional.cross_entropy(clean_logit, batch_Y) \
             + nn.functional.mse_loss(clean_embedding, 
                                       adv_embedding) \
-            + self.lam * self.regularization_loss_func(expanded_clean_embedding, 
-                                                       adv_embedding,
-                                                       masked_adv_embedding)
+            + self.lam * self.regularization_loss_func(__class__._regular_func_context(clean_embedding = clean_embedding, 
+                                                       adv_embedding = adv_embedding,
+                                                       masked_adv_embedding = masked_adv_embedding,
+                                                       batch_Y_concepts = batch_Y_concepts))
 
         if self.training_forward_func is not None:
             self.training_forward_func(loss)
@@ -157,16 +221,26 @@ class embedding_robust_training:
     def generate_masked_sample(self, batch_X:torch.Tensor,
                         attributions:torch.Tensor):
         
+        """
+            batch_X: [B, C, W, H] or [B * K, C, W, H]
+            attributions: [B, C, W, H] or [B * K, C, W, H]
+        """
+        
         B, C, W, H = batch_X.size()
         self.model.eval()
         
+        # adv_attributions [B * K, C, W, H] -> [B * K, W * H]
         attributions = attributions.mean(1).abs().view(B, W * H)
         _, attributions_masked_indices = torch.topk(attributions, self.k, dim=1,largest=False)
+
+        # attributions_masked_indices [B * K, k] -> [B * K, C, k]
         attributions_masked_indices = attributions_masked_indices.unsqueeze(1).expand(-1, C, -1)
         
         _random_values = attributions.new_empty(attributions_masked_indices.size()).uniform_(*self.feature_range)
+
+        # masked_batch_X [B * K, C, W, H] -> [B * K, C, W * H]
         masked_batch_X = batch_X.detach().clone().view(B, C, -1)
-        masked_batch_X.scatter_(2, attributions_masked_indices, _random_values)
+        masked_batch_X.scatter_(2, attributions_masked_indices, _random_values) # masked_batch_X[B * K][C][attributions_masked_indices[B * K][C][k]] = _random_values[B * K][C][k]  
         masked_batch_X = masked_batch_X.view(B, C, W, H)
         
         return masked_batch_X

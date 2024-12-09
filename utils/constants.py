@@ -6,6 +6,7 @@ class dataset_constants:
     CIFAR100_DIR:str = "/home/ksas/Public/datasets/cifar100_concept_bank"
     CUB_DATA_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/CUB_200_2011"
     CUB_PROCESSED_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/class_attr_data_10"
+    RIVAL10_DIR:str = "/home/ksas/Public/datasets/RIVAL10/{}/"
 
 class CUB_features:
     # body part = (min, max)
@@ -43,3 +44,16 @@ class CUB_features:
     93, 99, 101, 106, 110, 111, 116, 117, 119, 125, 126, 131, 132, 134, 145, 149, 151, 152, 153, 157, 158, 163, 164, 168, 172, 178, 179, 181, \
     183, 187, 188, 193, 194, 196, 198, 202, 203, 208, 209, 211, 212, 213, 218, 220, 221, 225, 235, 236, 238, 239, 240, 242, 243, 244, 249, 253, \
     254, 259, 260, 262, 268, 274, 277, 283, 289, 292, 293, 294, 298, 299, 304, 305, 308, 309, 310, 311]
+
+class model_zoo:
+    CLIP:str = "/home/ksas/Public/model_zoo/clip"
+
+class RIVAL10_features:
+    _LABEL_MAPPINGS = './utils/RIVAL10/label_mappings.json'
+    _WNID_TO_CLASS = './utils/RIVAL10/wnid_to_class.json'
+
+    _ALL_CLASSNAMES = ["truck", "car", "plane", "ship", "cat", "dog", "equine", "deer", "frog", "bird"]
+
+    _ALL_ATTRS = ['long-snout', 'wings', 'wheels', 'text', 'horns', 'floppy-ears',
+                'ears', 'colored-eyes', 'tail', 'mane', 'beak', 'hairy', 
+                'metallic', 'rectangular', 'wet', 'long', 'tall', 'patterned']

@@ -23,7 +23,7 @@ from pcbm.concepts import ConceptBank
 from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
 from pcbm.training_tools import load_or_compute_projections
 
-from .constants import dataset_constants
+from .constants import dataset_constants, RIVAL10_features
 from .model_utils import *
 
 
@@ -152,7 +152,17 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
         train_loader, test_loader, idx_to_class = load_ham_data(args, preprocess)
         class_to_idx = {v:k for k,v in idx_to_class.items()}
         classes = list(class_to_idx.keys())
+    elif args.dataset == "rival10":
+        from utils import LocalRIVAL10
+        trainset = LocalRIVAL10(train=True, masks_dict=False, transform=preprocess)
+        testset = LocalRIVAL10(train=False, masks_dict=False, transform=preprocess)
 
+        class_to_idx = {c: i for (i,c) in enumerate(RIVAL10_features._ALL_CLASSNAMES)}
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+        train_loader = DataLoader(trainset, batch_size=args.batch_size,
+                                    shuffle=False, num_workers=args.num_workers)
+        test_loader = DataLoader(testset, batch_size=args.batch_size,
+                                    shuffle=False, num_workers=args.num_workers)
 
     else:
         raise ValueError(args.dataset)
@@ -164,7 +174,7 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
         train_loader = train_loader, 
         test_loader = test_loader
     )
-    return 
+     
 
 
 @dataclass
@@ -203,7 +213,17 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
             device = args.device
         )
     print(args.backbone_name)
-    if "open_clip" in args.backbone_name:
+    if "clip_classifier" in args.backbone_name:
+        import clip
+        # We assume clip models are passed of the form : clip:RN50
+        clip_backbone_name = args.backbone_name.split(":")[1]
+        backbone = CLIPWrapper(clip_backbone_name)
+        preprocess = backbone.preprocess
+        backbone.load_state_dict(torch.load(args.backbone_ckpt)["state"])
+        backbone = backbone.float()\
+                    .to(args.device)\
+                    .eval()
+    elif "open_clip" in args.backbone_name:
         import open_clip
         clip_backbone_name = args.backbone_name.split(":")[1]
         if os.path.isdir(args.backbone_ckpt):

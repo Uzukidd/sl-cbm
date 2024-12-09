@@ -42,6 +42,7 @@ def config():
     
     parser.add_argument("--pcbm-ckpt", required=True, type=str, help="Path to the PCBM checkpoint")
     parser.add_argument("--explain-method", required=True, type=str)
+    parser.add_argument("--concept-select-method", required=True, type=str)
     parser.add_argument("--dataset", default="cifar10", type=str)
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--batch-size", default=64, type=int)
@@ -85,7 +86,7 @@ class concept_select_func:
     }
     
     @staticmethod
-    def cifar10(args:argparse.Namespace,
+    def topK_concept(args:argparse.Namespace,
             dataset:dataset_collection,
             model_context:model_pipeline):
         weights = model_context.posthoc_layer.classifier.weight.clone().detach()
@@ -96,6 +97,17 @@ class concept_select_func:
             topk_indices = topk_indices.detach()
             main_cocnept_classes[idx] = topk_indices
                                                  
+        
+        return main_cocnept_classes
+    
+    @staticmethod
+    def specific_ocnept(args:argparse.Namespace,
+            dataset:dataset_collection,
+            model_context:model_pipeline):
+        class_to_idx = dataset.class_to_idx
+        concept_names = model_context.concept_bank.concept_names
+        main_cocnept_classes = {class_to_idx[keys]: torch.tensor([concept_names.index(vals)])
+                                                 for keys, vals in __class__.clip10_main_cocnept_classes.items()}
         
         return main_cocnept_classes
 
@@ -180,7 +192,7 @@ def main(args:argparse.Namespace):
                                             epoch=10, 
                                             eps = args.eps)
     
-    targeted_concept_idx = getattr(concept_select_func, args.dataset)(args = args, 
+    targeted_concept_idx = getattr(concept_select_func, args.concept_select_method)(args = args, 
                                                                       dataset = dataset,
                                                                       model_context = model_context)
     print(targeted_concept_idx)
@@ -200,26 +212,6 @@ def main(args:argparse.Namespace):
                                         lam = 1.0,
                                         feature_range= (0.0, 1.0),
                                         device=torch.device(args.device))
-    
-    # asgt_module = ASGT_Legacy(model = model, 
-    #                    training_forward_func = partial(training_forward_func,
-    #                                                    model = model,
-    #                                                    optimizer = optimizer),
-    #                    loss_func = nn.CrossEntropyLoss(),
-    #                    attak_func="FGSM",
-    #                    explain_func = partial(explain_algorithm_forward, 
-    #                                           explain_algorithm=explain_algorithm),
-    #                    eps = args.eps,
-    #                    k = int(args.data_size[-1] * args.data_size[-2] * args.k),
-    #                    lam = 1.0,
-    #                    feature_range= (0.0, 1.0),
-    #                    device=torch.device(args.device))
-    
-    # asgt_module.evaluate_model(dataset.train_loader)
-    # asgt_module.evaluate_model(dataset.test_loader)
-    # asgt_module.evaluate_model_robustness(dataset.test_loader)
-    # asgt_module.evaluate_embedding_robustness(dataset.test_loader)
-
     
     num_epoches = 5
     for epoch in range(num_epoches):

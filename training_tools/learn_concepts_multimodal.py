@@ -10,11 +10,11 @@ from tqdm import tqdm
 
 def config():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset-path", required=True, type=str, help="Path to the dataset")
+    parser.add_argument("--dataset-path", type=str, help="Path to the dataset")
     parser.add_argument("--out-dir", required=True, type=str)
     parser.add_argument("--classes", default="cifar10", type=str)
     parser.add_argument("--backbone-name", default="clip:RN50", type=str)
-    parser.add_argument("--backbone-ckpt", required=True, type=str, help="Path to the backbone ckpt")
+    parser.add_argument("--backbone-ckpt", default="/home/ksas/Public/model_zoo/clip", type=str, help="Path to the backbone ckpt")
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--recurse", default=1, type=int, help="How many times to recurse on the conceptnet graph")
     return parser.parse_args()
@@ -173,6 +173,11 @@ if __name__ == "__main__":
             all_concepts = clean_concepts(all_concepts)
             all_concepts = list(set(all_concepts).difference(set(all_classes)))
         learn_conceptbank(args, all_concepts, args.classes)
-
+    elif args.classes == "rival10":
+        from torchvision import datasets
+        all_concepts = ['long-snout', 'wings', 'wheels', 'text', 'horns', 'floppy-ears',
+                'ears', 'colored-eyes', 'tail', 'mane', 'beak', 'hairy', 
+                'metallic', 'rectangular', 'wet', 'long', 'tall', 'patterned']
+        learn_conceptbank(args, all_concepts, args.classes)
     else:
         raise ValueError(f"Unknown classes: {args.classes}. Define your dataset here!")

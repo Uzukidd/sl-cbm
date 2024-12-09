@@ -73,21 +73,21 @@ def run_linear_probe(args, train_data, test_data):
 
 
 def main(args, concept_bank, backbone, preprocess):
-    trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader = common_utils.load_dataset(args, preprocess)
+    dataset = common_utils.load_dataset(args, preprocess)
     
     # Get a clean conceptbank string
     # e.g. if the path is /../../cub_resnet-cub_0.1_100.pkl, then the conceptbank string is resnet-cub_0.1_100
     # which means a bank learned with 100 samples per concept with C=0.1 regularization parameter for the SVM. 
     # See `learn_concepts_dataset.py` for details.
     conceptbank_source = args.concept_bank.split("/")[-1].split(".")[0] 
-    num_classes = len(class_to_idx)
+    num_classes = len(dataset.class_to_idx)
     
     # Initialize the PCBM module.
-    posthoc_layer = PosthocLinearCBM(concept_bank, backbone_name=args.backbone_name, idx_to_class=idx_to_class, n_classes=num_classes)
+    posthoc_layer = PosthocLinearCBM(concept_bank, backbone_name=args.backbone_name, idx_to_class=dataset.idx_to_class, n_classes=num_classes)
     posthoc_layer = posthoc_layer.to(args.device)
 
     # We compute the projections and save to the output directory. This is to save time in tuning hparams / analyzing projections.
-    train_embs, train_projs, train_lbls, test_embs, test_projs, test_lbls = load_or_compute_projections(args, backbone, posthoc_layer, train_loader, test_loader)
+    train_embs, train_projs, train_lbls, test_embs, test_projs, test_lbls = load_or_compute_projections(args, backbone, posthoc_layer, dataset.train_loader, dataset.test_loader)
     
     run_info, weights, bias = run_linear_probe(args, (train_projs, train_lbls), (test_projs, test_lbls))
     
