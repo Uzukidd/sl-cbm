@@ -1,4 +1,4 @@
-# bash _interpret_base.sh "open_clip:RN50" "guided_grad_cam" "$1" "$2" "$3"
-bash _interpret_base.sh "open_clip:RN50" "integrated_gradient" "$1" "$2" "$3"
-bash _interpret_base.sh "open_clip:RN50" "layer_grad_cam" "$1" "$2" "$3"
-bash _interpret_base.sh "open_clip:RN50" "saliency_map" "$1" "$2" "$3"
+bash _interpret_base.sh "/home/ksas/Public/model_zoo/clip" \
+"open_clip:RN50" \
+"/home/ksas/uzuki_space/adv-cbm/data/ckpt/RIVAL_10/pcbm_rival10__clip:RN50__multimodal_concept_clip:RN50_rival10_recurse:1__lam:0.0002__alpha:0.99__seed:42.ckpt" \
+"layer_grad_cam" "$1" "$2" "$3"

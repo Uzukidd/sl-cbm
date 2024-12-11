@@ -71,6 +71,12 @@ class get_concept_net_func:
     @staticmethod
     def clip_classifier(args, model_context:model_pipeline):
         return model_context.backbone
+    
+    @staticmethod
+    def open_clip(args, model_context:model_pipeline):
+        posthoc_concept_net = PCBM_Net(model_context=model_context)
+        posthoc_concept_net.output_type("concepts")
+        return posthoc_concept_net
 
     @staticmethod
     def clip(args, model_context:model_pipeline):
@@ -113,6 +119,15 @@ class select_concept_func:
 
     @staticmethod
     def clip(args, concept_bank:ConceptBank,
+            model_context:model_pipeline,
+            dataset:dataset_collection,
+            explain_algorithm:GradientAttribution,
+            explain_algorithm_forward:Callable,):
+        K = concept_bank.concept_info.concept_names.__len__()
+        return torch.arange(0, K).to(args.device)
+    
+    @staticmethod
+    def open_clip(args, concept_bank:ConceptBank,
             model_context:model_pipeline,
             dataset:dataset_collection,
             explain_algorithm:GradientAttribution,
@@ -203,7 +218,7 @@ def main(args):
     dataset.trainset.masks_dict = True
     dataset.testset.masks_dict = True
 
-    posthoc_layer = load_pcbm(args)
+    posthoc_layer = load_pcbm(args, dataset, concept_bank)
 
     model_context = model_pipeline(concept_bank = concept_bank, 
                    posthoc_layer = posthoc_layer, 

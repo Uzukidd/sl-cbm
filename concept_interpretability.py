@@ -36,7 +36,8 @@ def config():
     parser.add_argument("--backbone-name", default="clip:RN50", type=str)
     
     parser.add_argument("--concept-bank", required=True, type=str, help="Path to the concept bank")
-    
+
+    parser.add_argument("--pcbm-arch", default="PCBM", type=str)
     parser.add_argument("--pcbm-ckpt", required=True, type=str, help="Path to the PCBM checkpoint")
     parser.add_argument("--explain-method", required=True, type=str)
     parser.add_argument("--concept-pooling", default="max_pooling_class_wise", type=str)
@@ -82,21 +83,22 @@ class concept_select_func:
     
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)
-    concept_bank = load_concept_bank(args)
-    backbone, preprocess = load_backbone(args)
-    normalizer = transforms.Compose(preprocess.transforms[-1:])
-    preprocess = transforms.Compose(preprocess.transforms[:-1])
+    concept_bank, backbone, dataset, posthoc_layer, posthoc_concept_net, model_context = load_model_pipeline(args)
+    # concept_bank = load_concept_bank(args)
+    # backbone, preprocess = load_backbone(args)
+    # normalizer = transforms.Compose(preprocess.transforms[-1:])
+    # preprocess = transforms.Compose(preprocess.transforms[:-1])
     
-    posthoc_layer = load_pcbm(args)
-    dataset = load_dataset(args, preprocess)
+    # posthoc_layer = load_pcbm(args)
+    # dataset = load_dataset(args, preprocess)
     
-    model_context = model_pipeline(concept_bank = concept_bank, 
-                   posthoc_layer = posthoc_layer, 
-                   preprocess = preprocess, 
-                   normalizer = normalizer, 
-                   backbone = backbone)
-    posthoc_concept_net = PCBM_Net(model_context=model_context)
-    posthoc_concept_net.output_type("concepts")
+    # model_context = model_pipeline(concept_bank = concept_bank, 
+    #                posthoc_layer = posthoc_layer, 
+    #                preprocess = preprocess, 
+    #                normalizer = normalizer, 
+    #                backbone = backbone)
+    # posthoc_concept_net = PCBM_Net(model_context=model_context)
+    # posthoc_concept_net.output_type("concepts")
     
     explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(posthoc_concept_net = posthoc_concept_net)
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)

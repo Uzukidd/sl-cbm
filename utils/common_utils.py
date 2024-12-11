@@ -238,7 +238,12 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
         import clip
         # We assume clip models are passed of the form : clip:RN50
         clip_backbone_name = args.backbone_name.split(":")[1]
-        backbone, preprocess = clip.load(clip_backbone_name, device=args.device, download_root=args.backbone_ckpt)
+        if os.path.isdir(args.backbone_ckpt):
+            backbone, preprocess = clip.load(clip_backbone_name, device=args.device, download_root=args.backbone_ckpt)
+        else:
+            backbone, preprocess = clip.load(clip_backbone_name, device=args.device, download_root="/home/ksas/Public/model_zoo/clip")
+            backbone.load_state_dict(torch.load(args.backbone_ckpt)["state_dict"])
+
         backbone = backbone.float()\
                     .to(args.device)\
                     .eval()
@@ -288,7 +293,9 @@ class pcbm_configure:
     pcbm_ckpt:str
     device:Union[str, torch.device]
 
-def load_pcbm(args:Union[argparse.Namespace, pcbm_configure]) -> PosthocLinearCBM:
+def load_pcbm(args:Union[argparse.Namespace, pcbm_configure], 
+              dataset:dataset_collection,
+              concepts_bank:ConceptBank) -> PosthocLinearCBM:
     
     if isinstance(args, argparse.Namespace):
         args = pcbm_configure(
@@ -296,11 +303,31 @@ def load_pcbm(args:Union[argparse.Namespace, pcbm_configure]) -> PosthocLinearCB
             device = args.device
         )
     
-    posthoc_layer:PosthocLinearCBM = torch.load(args.pcbm_ckpt, map_location=args.device)
-    # print(posthoc_layer.analyze_classifier(k=5))
-    # print(posthoc_layer.names)
-    # print(posthoc_layer.names.__len__())
+    posthoc_layer = PosthocLinearCBM(concepts_bank, 
+                                     idx_to_class=dataset.idx_to_class, 
+                                     n_classes=dataset.idx_to_class.__len__())
+    posthoc_layer.load_state_dict(torch.load(args.pcbm_ckpt, map_location=args.device))
+    posthoc_layer.to(args.device)
     return posthoc_layer
+
+@dataclass
+class model_pipeline_configure:
+    pcbm_arch:str
+    device:Union[str, torch.device]
+
+def build_model(args:Union[argparse.Namespace, model_pipeline_configure], 
+                         model_context:model_pipeline):
+    model = None
+    if isinstance(args, argparse.Namespace):
+        args = model_pipeline_configure(
+            pcbm_arch = args.pcbm_arch,
+            device = args.device
+        )
+
+    if args.pcbm_arch == "PCBM":
+        model = PCBM_Net(model_context=model_context)
+
+    return model 
 
 def model_forward_wrapper(model_context:model_pipeline,):
     def model_forward(batch_X:torch.Tensor,
@@ -314,20 +341,40 @@ def model_forward_wrapper(model_context:model_pipeline,):
     return partial(model_forward, model_context = model_context)
 
 def load_model_pipeline(args:argparse.Namespace):
+    # concept_bank = load_concept_bank(args)
+    # backbone, preprocess = load_backbone(args)
+    # normalizer = transforms.Compose(preprocess.transforms[-1:])
+    # preprocess = transforms.Compose(preprocess.transforms[:-1])
+    
+    # posthoc_layer = load_pcbm(args)
+    # trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader = load_dataset(args, preprocess)
+    
+    # model_context = model_pipeline(concept_bank = concept_bank, 
+    #                posthoc_layer = posthoc_layer, 
+    #                preprocess = preprocess, 
+    #                normalizer = normalizer, 
+    #                backbone = backbone)
+    # posthoc_concept_net = PCBM_Net(model_context=model_context)
+
     concept_bank = load_concept_bank(args)
     backbone, preprocess = load_backbone(args)
     normalizer = transforms.Compose(preprocess.transforms[-1:])
     preprocess = transforms.Compose(preprocess.transforms[:-1])
     
-    posthoc_layer = load_pcbm(args)
-    trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader = load_dataset(args, preprocess)
+    dataset = load_dataset(args, preprocess)
+    posthoc_layer = load_pcbm(args, dataset, concept_bank)
+
     
     model_context = model_pipeline(concept_bank = concept_bank, 
                    posthoc_layer = posthoc_layer, 
                    preprocess = preprocess, 
                    normalizer = normalizer, 
                    backbone = backbone)
-    posthoc_concept_net = PCBM_Net(model_context=model_context)
+    
+    posthoc_concept_net = build_model(args, model_context=model_context)
+    posthoc_concept_net.output_type("concepts")
+
+    return concept_bank, backbone, dataset, posthoc_layer, posthoc_concept_net, model_context
 
 def create_logger(log_file=None, rank=0, log_level=logging.INFO):
     logger = logging.getLogger(__name__)
@@ -345,7 +392,7 @@ def create_logger(log_file=None, rank=0, log_level=logging.INFO):
     logger.propagate = False
     return logger
 
-def topK_concept_to_name(args, pcbm_net,
+def topK_concept_to_name(args, pcbm_net:PCBM_Net,
                          batch_X:torch.Tensor,
                          K = 5):
     # from model_utils import PCBM_Net
@@ -353,7 +400,7 @@ def topK_concept_to_name(args, pcbm_net,
     topk_values, topk_indices = torch.topk(projs, K, dim=1)
     predicted_Y = pcbm_net.posthoc_layer.forward_projs(projs).argmax(1)
 
-    topk_concept = [{pcbm_net.posthoc_layer.names[idx]:round(float(val), 2) for idx, val in zip(irow, vrow)} for irow, vrow in zip(topk_indices, topk_values)]
+    topk_concept = [{pcbm_net.posthoc_layer.CAV_layer.names[idx]:round(float(val), 2) for idx, val in zip(irow, vrow)} for irow, vrow in zip(topk_indices, topk_values)]
     classification_res = [f"{pcbm_net.posthoc_layer.idx_to_class[Y.item()]}" for Y in predicted_Y]
     print(f"top (K = {K}) concepts: {json.dumps(topk_concept, indent=4)}")
     print(f"classification result: {json.dumps(classification_res, indent=4)}")

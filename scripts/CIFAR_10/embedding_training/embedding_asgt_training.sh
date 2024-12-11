@@ -22,10 +22,11 @@
 #     "cat"\
 #     "sharp claws"\
 #     "--save-100-local --exp-name=vanilla --zip"
-bash _trianing_base.sh "cifar10" "open_clip:RN50" "saliency_map" "topK_concept" "concept_cross_entropy_asgt_test" "concept_cross_entropy" "16" $1
-# bash _interpret_base.sh "cifar10" "outputs/trains/cifar10_open_clip:RN50_saliency_map_topK_concept_concept_mse_loss_asgt_test_concept_mse_loss_16/concept_mse_loss_asgt_test-open_clip:RN50.pth"\
-#     "open_clip:RN50"\
-#     "layer_grad_cam"\
-#     "cat"\
-#     "sharp claws"\
-#     "--save-100-local --exp-name=concept_mse_loass --zip"
+
+# bash _trianing_base.sh "cifar10" "open_clip:RN50" "saliency_map" "topK_concept" "concept_cross_entropy_asgt_test" "concept_cross_entropy" "16" $1
+bash _interpret_base.sh "cifar10" "outputs/trains/cifar10_open_clip:RN50_saliency_map_topK_concept_concept_cross_entropy_asgt_test_concept_cross_entropy_16/concept_cross_entropy_asgt_test-open_clip:RN50.pth"\
+    "open_clip:RN50"\
+    "layer_grad_cam"\
+    "cat"\
+    "sharp claws"\
+    "--save-100-local --exp-name=concept_cross_entropy --zip"

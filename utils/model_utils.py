@@ -111,21 +111,21 @@ class CBM_Net(ABC, nn.Module):
                 f"output_{type}", 
                 True)
     
-    @abstractmethod
-    def get_normalizer(self) -> Union[nn.Module, transforms.Compose]:
-        pass
+    # @abstractmethod
+    # def get_normalizer(self) -> Union[nn.Module, transforms.Compose]:
+    #     pass
     
-    @abstractmethod
-    def get_embedding_encoder(self) -> nn.Module:
-        pass
+    # @abstractmethod
+    # def get_embedding_encoder(self) -> nn.Module:
+    #     pass
 
-    @abstractmethod
-    def get_cocnept_encoder(self) -> nn.Module:
-        pass
+    # @abstractmethod
+    # def get_cocnept_encoder(self) -> nn.Module:
+    #     pass
 
-    @abstractmethod
-    def get_pcbm_pipeline(self) -> nn.Module:
-        pass
+    # @abstractmethod
+    # def get_pcbm_pipeline(self) -> nn.Module:
+    #     pass
 
     # intput -> cocnept projections
     def encode_as_concepts(self, 
@@ -134,36 +134,34 @@ class CBM_Net(ABC, nn.Module):
         return concept_encoder(batch_X)
     
     # intput -> embedding
-    @abstractmethod
     def encode_as_embedding(self, 
                             batch_X:torch.Tensor) -> torch.Tensor:
         backbone = self.get_embedding_encoder()
         return backbone(batch_X)
     
     # intput -> batch logit
-    @abstractmethod
     def forward(self, 
                 batch_X:torch.Tensor) -> torch.Tensor:
         pcbm = self.get_pcbm_pipeline()
         return pcbm(batch_X)
     
-    # img -> embedding
-    @abstractmethod
-    def embed(self, 
-              batch_X:torch.Tensor) -> torch.Tensor:
-        pass
+    # # img -> embedding
+    # @abstractmethod
+    # def embed(self, 
+    #           batch_X:torch.Tensor) -> torch.Tensor:
+    #     pass
     
-    # embedding -> cocnept projections
-    @abstractmethod
-    def comput_dist(self,
-                    embeddings:torch.Tensor) -> torch.Tensor:
-        pass
+    # # embedding -> cocnept projections
+    # @abstractmethod
+    # def comput_dist(self,
+    #                 embeddings:torch.Tensor) -> torch.Tensor:
+    #     pass
     
-    # cocnept projections -> batch logit
-    @abstractmethod
-    def forward_projs(self,
-                      concept_projs:torch.Tensor) -> torch.Tensor:
-        pass
+    # # cocnept projections -> batch logit
+    # @abstractmethod
+    # def forward_projs(self,
+    #                   concept_projs:torch.Tensor) -> torch.Tensor:
+    #     pass
 
 
 class PCBM_Net(CBM_Net):
@@ -172,16 +170,6 @@ class PCBM_Net(CBM_Net):
         self.normalizer = model_context.normalizer
         self.backbone = model_context.backbone
         self.posthoc_layer = model_context.posthoc_layer
-        
-    def output_type(self, type:str):
-        self.output_class = False
-        self.output_logit = False
-        self.output_embedding = False
-        self.output_concepts = False
-        
-        setattr(self, 
-                f"output_{type}", 
-                True)
         
     def forward(self, 
                 input_x:torch.Tensor):
@@ -207,17 +195,17 @@ class PCBM_Net(CBM_Net):
     def get_normalizer(self) -> Union[nn.Module, transforms.Compose]:
         return self.normalizer
     
-    @abstractmethod
     def get_embedding_encoder(self) -> nn.Module:
         return Tranforms_Wrapper(self.normalizer, self.backbone)
 
-    @abstractmethod
     def get_cocnept_encoder(self) -> nn.Module:
-        return Tranforms_Wrapper(self.normalizer, self.backbone)
+        return Tranforms_Wrapper(self.normalizer, nn.Sequential(
+            self.backbone,
+            self.posthoc_layer.CAV_layer
+        ))
 
-    @abstractmethod
     def get_pcbm_pipeline(self) -> nn.Module:
-        pass
+        return self
     
     def embed(self, 
               input_x:torch.Tensor) -> torch.Tensor:

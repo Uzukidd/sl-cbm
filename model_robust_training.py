@@ -40,6 +40,8 @@ def config():
     
     parser.add_argument("--concept-bank", required=True, type=str, help="Path to the concept bank")
     
+    # PCBM, classifier, cub_net, etc
+    parser.add_argument("--pcbm-arch", default="PCBM", type=str)
     parser.add_argument("--pcbm-ckpt", required=True, type=str, help="Path to the PCBM checkpoint")
     parser.add_argument("--explain-method", required=True, type=str)
     parser.add_argument("--dataset", default="cifar10", type=str)
@@ -55,7 +57,6 @@ def config():
     parser.add_argument("--k", default=1e-1, type=float)
     
     parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
-
 
     return parser.parse_args()
 
@@ -104,14 +105,11 @@ def training_forward_func(loss:torch.Tensor,
     loss.backward()
     optimizer.step()
 
-class get_classification_model:
+class prepare_classification_model:
     
     @staticmethod
     def clip(args:argparse.Namespace,
-              model_context:model_pipeline):
-        posthoc_concept_net = PCBM_Net(model_context=model_context,
-                                output_logit=True)
-        
+              posthoc_concept_net:PCBM_Net):
         posthoc_concept_net.posthoc_layer.classifier.weight.requires_grad_(False)
         posthoc_concept_net.posthoc_layer.classifier.bias.requires_grad_(False)
 
@@ -119,14 +117,14 @@ class get_classification_model:
     
     @staticmethod
     def open_clip(args:argparse.Namespace,
-                  model_context:model_pipeline):
+              posthoc_concept_net:PCBM_Net):
         return __class__.clip(args, 
-                              model_context)
+                              posthoc_concept_net)
         
     @staticmethod
     def resnet18_cub(args:argparse.Namespace,
-                     model_context:model_pipeline):
-        return model_context.backbone
+              posthoc_concept_net:PCBM_Net):
+        return posthoc_concept_net.backbone
     
 class save_checkpoint:
     
@@ -150,26 +148,14 @@ class save_checkpoint:
 
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)
-    concept_bank = load_concept_bank(args)
-    backbone, preprocess = load_backbone(args, full_load=not args.train_embedding)
 
-    normalizer = transforms.Compose(preprocess.transforms[-1:])
-    preprocess = transforms.Compose(preprocess.transforms[:-1])
-    
-    posthoc_layer = load_pcbm(args)
-    dataset = load_dataset(args, preprocess)
+    set_random_seed(args.universal_seed)
+    concept_bank, backbone, dataset, posthoc_layer, posthoc_concept_net, model_context = load_model_pipeline(args)
     args.data_size = dataset.trainset[0][0].size()
     
-    model_context = model_pipeline(concept_bank = concept_bank, 
-                   posthoc_layer = posthoc_layer, 
-                   preprocess = preprocess, 
-                   normalizer = normalizer, 
-                   backbone = backbone)
-    
-    
-    # Get a trainable model
+    # Get the trainable model
     backbone_arch = args.backbone_name.split(":")[0]
-    model:nn.Module = getattr(get_classification_model, backbone_arch)(args = args, model_context=model_context,)
+    model:nn.Module = getattr(prepare_classification_model, backbone_arch)(args = args, posthoc_concept_net=posthoc_concept_net,)
     
     # Get explain algorithm
     explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(posthoc_concept_net = model)

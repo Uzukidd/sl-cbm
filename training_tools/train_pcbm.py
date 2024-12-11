@@ -83,7 +83,7 @@ def main(args, concept_bank, backbone, preprocess):
     num_classes = len(dataset.class_to_idx)
     
     # Initialize the PCBM module.
-    posthoc_layer = PosthocLinearCBM(concept_bank, backbone_name=args.backbone_name, idx_to_class=dataset.idx_to_class, n_classes=num_classes)
+    posthoc_layer = PosthocLinearCBM(concept_bank, idx_to_class=dataset.idx_to_class, n_classes=num_classes)
     posthoc_layer = posthoc_layer.to(args.device)
 
     # We compute the projections and save to the output directory. This is to save time in tuning hparams / analyzing projections.
@@ -93,11 +93,10 @@ def main(args, concept_bank, backbone, preprocess):
     
     # Convert from the SGDClassifier module to PCBM module.
     posthoc_layer.set_weights(weights=weights, bias=bias)
-
     # Sorry for the model path hack. Probably i'll change this later.
     model_path = os.path.join(args.out_dir,
                               f"pcbm_{args.dataset}__{args.backbone_name.replace('/', '_')}__{conceptbank_source}__lam:{args.lam}__alpha:{args.alpha}__seed:{args.seed}.ckpt")
-    torch.save(posthoc_layer, model_path)
+    torch.save(posthoc_layer.state_dict(), model_path)
 
     # Again, a sad hack.. Open to suggestions
     run_info_file = model_path.replace("pcbm", "run_info-pcbm")
