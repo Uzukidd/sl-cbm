@@ -9,4 +9,5 @@ python model_robust_training.py --dataset="rival10"\
             --batch-size="64"\
             --exp-name="clip_rival10_asgt"\
             --universal-seed="24"\
+            # --k="3e-1"\
             $1

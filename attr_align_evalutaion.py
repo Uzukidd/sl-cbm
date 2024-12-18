@@ -4,7 +4,7 @@ import time
 import heapq
 import clip
 import pickle as pkl
-
+from datetime import datetime
 
 import torch
 import torch.nn as nn
@@ -18,8 +18,10 @@ from utils import *
 def config():
     parser = argparse.ArgumentParser()
     parser.add_argument("--universal-seed", default=int(time.time()), type=int, help="Universal random seed")
-    parser.add_argument("--concept-bank", default="/home/ksas/Public/datasets/rival10_concept_bank/multimodal_concept_clip:RN50_rival10_recurse:1.pkl", type=str, help="Path to the concept bank")
-    parser.add_argument("--pcbm-ckpt", default="data/ckpt/RIVAL_10/pcbm_RIVAL10__clip:RN50__multimodal_concept_clip:RN50_rival10_recurse:1__lam:0.0002__alpha:0.99__seed:42.ckpt", type=str, help="Path to the PCBM checkpoint")
+    parser.add_argument("--concept-bank", default="/home/ksas/Public/datasets/concept_banks/multimodal_concept_open_clip:ViT-B-16_rival10_CSSCBM.pkl", type=str, help="Path to the concept bank")
+    
+    parser.add_argument("--pcbm-arch", required=True, type=str, help="Bottleneck model architecture")
+    parser.add_argument("--pcbm-ckpt", required=True, type=str, help="Path to the PCBM checkpoint")
 
     parser.add_argument("--backbone-ckpt", required=True, type=str, help="Path to the backbone ckpt")
     parser.add_argument("--backbone-name", required=True, type=str)
@@ -27,11 +29,12 @@ def config():
     parser.add_argument("--explain-method", required=True, type=str)
     parser.add_argument("--concept-pooling", default="max_pooling_class_wise", type=str)
     
-    parser.add_argument("--dataset", default="rival10", type=str)
+    parser.add_argument("--dataset", default="rival10_full", type=str)
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--batch-size", default=64, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
-    
+
+    parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
     parser.add_argument('--save-100-local', action='store_true')
 
     return parser.parse_args()
@@ -170,8 +173,8 @@ def interpret_all_concept(args,
                           explain_algorithm_forward:Callable,
                           explain_concept:torch.Tensor):
     
-    attrwise_iou = None
-    attrwise_amount = None
+    attrwise_iou = [None for i in range(10)]
+    attrwise_amount = [None for i in range(10)]
     for idx, data in enumerate(tqdm(data_loader)):
         image:torch.Tensor =  data["img"].to(args.device)
         attr_labels:torch.Tensor = data["attr_labels"].to(args.device)
@@ -187,6 +190,7 @@ def interpret_all_concept(args,
             ind_attr_labels = attr_labels[batch_mask]
             ind_attr_masks = attr_masks[batch_mask]
             ind_class_name = class_name[batch_mask]
+            ind_class_label = class_label[batch_mask].item()
 
             attribution = explain_algorithm_forward(
                 batch_X = ind_X,
@@ -196,42 +200,28 @@ def interpret_all_concept(args,
 
             iou, dice = attribution_iou(attribution, ind_attr_masks)
 
-            if attrwise_iou is None:
-                attrwise_iou = image.new_zeros(K)
-                attrwise_amount = image.new_zeros(K)
+            if attrwise_iou[ind_class_label] is None:
+                attrwise_iou[ind_class_label] = image.new_zeros(K)
+                attrwise_amount[ind_class_label] = image.new_zeros(K)
             
-            attrwise_amount += ind_attr_labels
-            attrwise_iou += iou * ind_attr_labels
+            attrwise_amount[ind_class_label] += ind_attr_labels
+            attrwise_iou[ind_class_label] += iou * ind_attr_labels
     
-    attrwise_iou = attrwise_iou / attrwise_amount
+    attrwise_iou = torch.stack(attrwise_iou) / torch.stack(attrwise_amount)
     return attrwise_iou
 
             
 def main(args):
     set_random_seed(args.universal_seed)
-    concept_bank = load_concept_bank(args)
-    backbone, preprocess = load_backbone(args)
-    normalizer = transforms.Compose(preprocess.transforms[-1:])
-    preprocess = transforms.Compose(preprocess.transforms[:-1])
-    
-    dataset = load_dataset(args, preprocess)
-    dataset.trainset.masks_dict = True
-    dataset.testset.masks_dict = True
+    concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
+    model.eval()
+    # concept_net = getattr(get_concept_net_func, args.backbone_name.split(":")[0])(args, model_context)
 
-    posthoc_layer = load_pcbm(args, dataset, concept_bank)
-
-    model_context = model_pipeline(concept_bank = concept_bank, 
-                   posthoc_layer = posthoc_layer, 
-                   preprocess = preprocess, 
-                   normalizer = normalizer, 
-                   backbone = backbone)
-
-    concept_net = getattr(get_concept_net_func, args.backbone_name.split(":")[0])(args, model_context)
-
-    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(posthoc_concept_net = concept_net)
+    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
+                                                    args.explain_method)(forward_func=model.encode_as_concepts,
+                                                                        model = model)
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
-    attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
-    
+    # attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
     explain_concept:torch.Tensor = getattr(select_concept_func, args.backbone_name.split(":")[0])(args, concept_bank,
                                                                                                   model_context,
                                                                                                   dataset,
@@ -242,8 +232,10 @@ def main(args):
                           explain_algorithm, 
                           explain_algorithm_forward,
                           explain_concept)
-    for names, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou):
-        print(f"{names}: {iou:.2f}")
+    for label, class_name in enumerate(constants.RIVAL10_features._ALL_CLASSNAMES):
+        args.logger.info(f"{class_name}:")
+        for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
+            args.logger.info(f" - {name}: {iou:.2f}")
     # classwise_topK_image = select_act_topK_image(args, backbone, dataset.test_loader)
 
     # images = np.array([[img.permute(1, 2, 0).numpy() for img in row] for row in classwise_topK_image])
@@ -265,7 +257,16 @@ def main(args):
     # print(np.array(accuracy).mean())
 if __name__ == "__main__":
     args = config()
-    print(f"universal seed: {args.universal_seed}")
+    args.save_path = os.path.join("./outputs/evals", args.exp_name)
+    os.makedirs(args.save_path, exist_ok=True)
+    
+    args_dict = vars(args)
+    args_json = json.dumps(args_dict, indent=4)
+    
+    args.logger = common_utils.create_logger(log_file = os.path.join(args.save_path, "exp_log.log"))
+    args.logger.info(args_json)
+    args.logger.info(f"universal seed: {args.universal_seed}")
+
     if not torch.cuda.is_available():
         args.device = "cpu"
         print(f"GPU devices failed. Change to {args.device}")

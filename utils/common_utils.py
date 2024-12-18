@@ -7,11 +7,15 @@ import logging
 
 from tqdm import tqdm
 from typing import Tuple, Callable, Union, Optional, Dict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 
 
 import clip
+from clip.model import CLIP as clip_model_CLIP
+import open_clip
+from open_clip.model import CLIP as open_clip_model_CLIP
+
 import torch
 import torch.nn as nn
 from torchvision import datasets
@@ -152,10 +156,11 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
         train_loader, test_loader, idx_to_class = load_ham_data(args, preprocess)
         class_to_idx = {v:k for k,v in idx_to_class.items()}
         classes = list(class_to_idx.keys())
+
     elif args.dataset == "rival10":
         from utils import LocalRIVAL10
-        trainset = LocalRIVAL10(train=True, masks_dict=False, transform=preprocess)
-        testset = LocalRIVAL10(train=False, masks_dict=False, transform=preprocess)
+        trainset = LocalRIVAL10(train=True, classification_output=True, masks_dict=False, transform=preprocess)
+        testset = LocalRIVAL10(train=False, classification_output=True, masks_dict=False, transform=preprocess)
 
         class_to_idx = {c: i for (i,c) in enumerate(RIVAL10_features._ALL_CLASSNAMES)}
         idx_to_class = {v: k for k, v in class_to_idx.items()}
@@ -163,9 +168,35 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
                                     shuffle=False, num_workers=args.num_workers)
         test_loader = DataLoader(testset, batch_size=args.batch_size,
                                     shuffle=False, num_workers=args.num_workers)
+        
+    elif args.dataset == "rival10_full":
+        from utils import LocalRIVAL10
+        trainset = LocalRIVAL10(train=True, classification_output=False, masks_dict=True, transform=preprocess)
+        testset = LocalRIVAL10(train=False, classification_output=False, masks_dict=True, transform=preprocess)
 
+        class_to_idx = {c: i for (i,c) in enumerate(RIVAL10_features._ALL_CLASSNAMES)}
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+        train_loader = DataLoader(trainset, batch_size=args.batch_size,
+                                    shuffle=False, num_workers=args.num_workers)
+        test_loader = DataLoader(testset, batch_size=args.batch_size,
+                                    shuffle=False, num_workers=args.num_workers)
+        
+    elif args.dataset == "css_rival10":
+        from utils import CSS_Rival_Dataset
+        train_dataset = CSS_Rival_Dataset(split="train", true_batch_size=args.batch_size, 
+                                          percentage_of_concept_labels_for_training=0.01, 
+                                          transform=preprocess)
+        test_dataset = CSS_Rival_Dataset(split="test", true_batch_size=args.batch_size, 
+                                         percentage_of_concept_labels_for_training=0.0, 
+                                         transform=preprocess)
+
+        class_to_idx = {c: i for (i,c) in enumerate(RIVAL10_features._ALL_CLASSNAMES)}
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+        train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=16)
+        test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=16)
     else:
         raise ValueError(args.dataset)
+    
     return dataset_collection(
         trainset = trainset, 
         testset = testset, 
@@ -175,7 +206,6 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
         test_loader = test_loader
     )
      
-
 
 @dataclass
 class concept_bank_configure:
@@ -204,7 +234,14 @@ class backbone_configure:
     backbone_ckpt:str
     device:Union[str, torch.device]
 
-def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:bool=False) -> Tuple[nn.Module, transforms.Compose]:
+@dataclass
+class backbone_pipeline:
+    preprocess:transforms.Compose
+    normalizer:transforms.Compose
+    backbone_model:Union[nn.Module, clip_model_CLIP, open_clip_model_CLIP]
+    additional_components:dict=field(default_factory=dict)
+
+def load_backbone(args:Union[argparse.Namespace, backbone_configure]) -> backbone_pipeline:
         
     if isinstance(args, argparse.Namespace):
         args = backbone_configure(
@@ -213,7 +250,15 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
             device = args.device
         )
     print(args.backbone_name)
+
+    backbone_res = backbone_pipeline(
+        preprocess = None,
+        normalizer = None,
+        backbone_model = None,
+    )
+
     if "clip_classifier" in args.backbone_name:
+        raise NotImplementedError
         import clip
         # We assume clip models are passed of the form : clip:RN50
         clip_backbone_name = args.backbone_name.split(":")[1]
@@ -229,11 +274,16 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
         if os.path.isdir(args.backbone_ckpt):
             backbone, _, preprocess = open_clip.create_model_and_transforms(clip_backbone_name, pretrained='openai', cache_dir=args.backbone_ckpt)
         else:
-            backbone, _, preprocess = open_clip.create_model_and_transforms(clip_backbone_name, pretrained=args.backbone_ckpt)
+            backbone, _, preprocess = open_clip.create_model_and_transforms(clip_backbone_name, pretrained=args.backbone_ckpt, cache_dir=model_zoo.CLIP)
 
         backbone = backbone.float()\
             .to(args.device)\
             .eval()
+
+        backbone_res.backbone_model = backbone
+        backbone_res.normalizer = transforms.Compose(preprocess.transforms[-1:])
+        backbone_res.preprocess = transforms.Compose(preprocess.transforms[:-1])
+        
     elif "clip" in args.backbone_name:
         import clip
         # We assume clip models are passed of the form : clip:RN50
@@ -241,12 +291,16 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
         if os.path.isdir(args.backbone_ckpt):
             backbone, preprocess = clip.load(clip_backbone_name, device=args.device, download_root=args.backbone_ckpt)
         else:
-            backbone, preprocess = clip.load(clip_backbone_name, device=args.device, download_root="/home/ksas/Public/model_zoo/clip")
+            backbone, preprocess = clip.load(clip_backbone_name, device=args.device, download_root=model_zoo.CLIP)
             backbone.load_state_dict(torch.load(args.backbone_ckpt)["state_dict"])
 
         backbone = backbone.float()\
-                    .to(args.device)\
-                    .eval()
+            .to(args.device)\
+            .eval()
+        
+        backbone_res.backbone_model = backbone
+        backbone_res.normalizer = transforms.Compose(preprocess.transforms[-1:])
+        backbone_res.preprocess = transforms.Compose(preprocess.transforms[:-1])
     
     elif args.backbone_name == "resnet18_cub":
         from pytorchcv.model_provider import get_model as ptcv_get_model
@@ -256,11 +310,7 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
             model = ptcv_get_model(args.backbone_name, pretrained=False)
             model.load_state_dict(torch.load(args.backbone_ckpt)["state_dict"])
             
-        if full_load:
-            backbone = model
-        else:
-            backbone, model_top = ResNetBottom(model), ResNetTop(model)
-            
+        backbone, model_top = ResNetBottom(model), ResNetTop(model)
         backbone.encode_image = lambda image: backbone(image)
         cub_mean_pxs = np.array([0.5, 0.5, 0.5])
         cub_std_pxs = np.array([2., 2., 2.])
@@ -271,6 +321,11 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
             ])
         backbone = backbone.to(args.device)\
             .eval()
+        
+        backbone_res.backbone_model = backbone
+        backbone_res.normalizer = transforms.Compose(preprocess.transforms[-1:])
+        backbone_res.preprocess = transforms.Compose(preprocess.transforms[:-1])
+        backbone_res.additional_components["model_top"] = model_top
     
     elif args.backbone_name.lower() == "ham10000_inception":
         raise NotImplementedError
@@ -286,7 +341,7 @@ def load_backbone(args:Union[argparse.Namespace, backbone_configure], full_load:
         raise NotImplementedError
 
  
-    return backbone, preprocess
+    return backbone_res
 
 @dataclass
 class pcbm_configure:
@@ -313,20 +368,36 @@ def load_pcbm(args:Union[argparse.Namespace, pcbm_configure],
 @dataclass
 class model_pipeline_configure:
     pcbm_arch:str
+    pcbm_ckpt:str
     device:Union[str, torch.device]
 
-def build_model(args:Union[argparse.Namespace, model_pipeline_configure], 
+def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure], 
                          model_context:model_pipeline):
     model = None
     if isinstance(args, argparse.Namespace):
         args = model_pipeline_configure(
             pcbm_arch = args.pcbm_arch,
+            pcbm_ckpt = args.pcbm_ckpt,
             device = args.device
         )
 
-    if args.pcbm_arch == "PCBM":
+    if args.pcbm_arch == "pcbm":
         model = PCBM_Net(model_context=model_context)
-
+        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
+            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
+            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
+        model.to(args.device)
+    elif args.pcbm_arch == "css_pcbm":
+        model = css_cbm(model_context.normalizer, 
+                        model_context.concept_bank, 
+                        model_context.backbone)
+        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
+            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
+            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
+        model.to(args.device)
+    else:
+        raise NotImplementedError
+    
     return model 
 
 def model_forward_wrapper(model_context:model_pipeline,):
@@ -341,40 +412,18 @@ def model_forward_wrapper(model_context:model_pipeline,):
     return partial(model_forward, model_context = model_context)
 
 def load_model_pipeline(args:argparse.Namespace):
-    # concept_bank = load_concept_bank(args)
-    # backbone, preprocess = load_backbone(args)
-    # normalizer = transforms.Compose(preprocess.transforms[-1:])
-    # preprocess = transforms.Compose(preprocess.transforms[:-1])
-    
-    # posthoc_layer = load_pcbm(args)
-    # trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader = load_dataset(args, preprocess)
-    
-    # model_context = model_pipeline(concept_bank = concept_bank, 
-    #                posthoc_layer = posthoc_layer, 
-    #                preprocess = preprocess, 
-    #                normalizer = normalizer, 
-    #                backbone = backbone)
-    # posthoc_concept_net = PCBM_Net(model_context=model_context)
-
     concept_bank = load_concept_bank(args)
-    backbone, preprocess = load_backbone(args)
-    normalizer = transforms.Compose(preprocess.transforms[-1:])
-    preprocess = transforms.Compose(preprocess.transforms[:-1])
-    
-    dataset = load_dataset(args, preprocess)
-    posthoc_layer = load_pcbm(args, dataset, concept_bank)
-
+    backbone = load_backbone(args)
+    dataset = load_dataset(args, backbone.preprocess)
     
     model_context = model_pipeline(concept_bank = concept_bank, 
-                   posthoc_layer = posthoc_layer, 
-                   preprocess = preprocess, 
-                   normalizer = normalizer, 
-                   backbone = backbone)
+                   preprocess = backbone.preprocess, 
+                   normalizer = backbone.normalizer, 
+                   backbone = backbone.backbone_model)
     
-    posthoc_concept_net = build_model(args, model_context=model_context)
-    posthoc_concept_net.output_type("concepts")
+    pcbm_model = build_pcbm_model(args, model_context=model_context)
 
-    return concept_bank, backbone, dataset, posthoc_layer, posthoc_concept_net, model_context
+    return concept_bank, backbone, dataset, model_context, pcbm_model
 
 def create_logger(log_file=None, rank=0, log_level=logging.INFO):
     logger = logging.getLogger(__name__)
@@ -392,21 +441,21 @@ def create_logger(log_file=None, rank=0, log_level=logging.INFO):
     logger.propagate = False
     return logger
 
-def topK_concept_to_name(args, pcbm_net:PCBM_Net,
+def topK_concept_to_name(args, pcbm_net:CBM_Net,
                          batch_X:torch.Tensor,
                          K = 5):
     # from model_utils import PCBM_Net
-    projs = pcbm_net(batch_X)
+    projs = pcbm_net.encode_as_concepts(batch_X)
     topk_values, topk_indices = torch.topk(projs, K, dim=1)
-    predicted_Y = pcbm_net.posthoc_layer.forward_projs(projs).argmax(1)
+    predicted_Y = pcbm_net.forward_projs(projs).argmax(1)
 
-    topk_concept = [{pcbm_net.posthoc_layer.CAV_layer.names[idx]:round(float(val), 2) for idx, val in zip(irow, vrow)} for irow, vrow in zip(topk_indices, topk_values)]
-    classification_res = [f"{pcbm_net.posthoc_layer.idx_to_class[Y.item()]}" for Y in predicted_Y]
-    print(f"top (K = {K}) concepts: {json.dumps(topk_concept, indent=4)}")
-    print(f"classification result: {json.dumps(classification_res, indent=4)}")
+    # topk_concept = [{pcbm_net.CAV_layer.names[idx]:round(float(val), 2) for idx, val in zip(irow, vrow)} for irow, vrow in zip(topk_indices, topk_values)]
+    # classification_res = [f"{pcbm_net.idx_to_class[Y.item()]}" for Y in predicted_Y]
+    # print(f"top (K = {K}) concepts: {json.dumps(topk_concept, indent=4)}")
+    # print(f"classification result: {json.dumps(classification_res, indent=4)}")
 
 
-def get_topK_concept_logit(args, batch_X:torch.Tensor, 
+def get_topK_concept_logit(args, batch_X:torch.Tensor,  
                             batch_Y:torch.Tensor,
                             model_context:model_pipeline,
                             K:int = 5,):

@@ -1,13 +1,18 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision import datasets
 import torchvision.transforms as transforms
 
-from clip.model import CLIP
+import clip
+from clip.model import CLIP as clip_model_CLIP
+import open_clip
+from open_clip.model import CLIP as open_clip_model_CLIP
+
 from pcbm.learn_concepts_multimodal import *
 from pcbm.data import get_dataset
 from pcbm.concepts import ConceptBank
-from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
+from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, CAV, get_model
 from pcbm.training_tools import load_or_compute_projections
 
 from abc import ABC, abstractmethod
@@ -28,7 +33,6 @@ class model_result:
 @dataclass
 class model_pipeline:
     concept_bank:ConceptBank
-    posthoc_layer:PosthocLinearCBM
     preprocess:transforms.Compose
     normalizer:transforms.Compose
     backbone:nn.Module
@@ -92,9 +96,8 @@ class CLIPWrapper(nn.Module):
     
 class CBM_Net(ABC, nn.Module):
     
-    def __init__(self, model_context:model_pipeline):
+    def __init__(self):
         super().__init__()
-        self.model_contexts = model_context
 
         self.output_class = False
         self.output_logit = True
@@ -127,11 +130,16 @@ class CBM_Net(ABC, nn.Module):
     # def get_pcbm_pipeline(self) -> nn.Module:
     #     pass
 
+
+    @abstractmethod
+    def get_backbone(self) -> nn.Module:
+        pass
+
+    @abstractmethod
     # intput -> cocnept projections
     def encode_as_concepts(self, 
                            batch_X:torch.Tensor) -> torch.Tensor:
-        concept_encoder = self.get_cocnept_encoder()
-        return concept_encoder(batch_X)
+        pass
     
     # intput -> embedding
     def encode_as_embedding(self, 
@@ -157,11 +165,11 @@ class CBM_Net(ABC, nn.Module):
     #                 embeddings:torch.Tensor) -> torch.Tensor:
     #     pass
     
-    # # cocnept projections -> batch logit
-    # @abstractmethod
-    # def forward_projs(self,
-    #                   concept_projs:torch.Tensor) -> torch.Tensor:
-    #     pass
+    # cocnept projections -> batch logit
+    @abstractmethod
+    def forward_projs(self,
+                      concept_projs:torch.Tensor) -> torch.Tensor:
+        pass
 
 
 class PCBM_Net(CBM_Net):
@@ -243,6 +251,142 @@ class PCBM_Net(CBM_Net):
     def get_backbone(self):
         return self.backbone
 
-# @dataclass
-# class dataset_pipeline:
-#     trainset:datasets, testset, class_to_idx, idx_to_class, train_loader, test_loader
+# CLIP VL-CBM
+class clip_cbm(CBM_Net):
+
+    TRAINABLE_COMPONENTS = ["classifier"]
+
+    def __init__(self, normalizer, concept_bank, backbone:Union[open_clip_model_CLIP, clip_model_CLIP]):
+        super().__init__()
+
+        self.concept_bank = concept_bank
+        self.normalizer = normalizer
+        self.backbone:Union[open_clip_model_CLIP, clip_model_CLIP] = backbone
+
+        self.CAV_layer = CAV(self.concept_bank.vectors, 
+                             self.concept_bank.intercepts, 
+                             self.concept_bank.norms,
+                             self.concept_bank.concept_names.copy())
+        
+        self.classifier = nn.Sequential(
+            nn.LayerNorm(18),
+            nn.Linear(18,10),
+        )
+
+    def train(self, mode=True):
+        for p in self.backbone.parameters(): p.requires_grad=not mode
+        for p in self.CAV_layer.parameters(): p.requires_grad=not mode
+        super().train(mode)
+
+    def state_dict(self):
+        return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}
+    
+    def get_backbone(self) -> open_clip_model_CLIP:
+        return self.backbone
+    
+    def forward(self, 
+                batch_X:torch.Tensor) -> torch.Tensor:
+        B, C, H, W = batch_X.size()
+
+        images = self.normalizer(batch_X)
+
+        visual_projection = self.backbone.encode_image(images)
+        concept_activations = self.CAV_layer(visual_projection)
+
+        return self.classifier(concept_activations)
+    
+    def encode_as_concepts(self, 
+                           batch_X:torch.Tensor) -> torch.Tensor:
+        B, C, H, W = batch_X.size()
+
+        images = self.normalizer(batch_X)
+
+        visual_projection = self.backbone.encode_image(images)
+        concept_activations = self.CAV_layer(visual_projection)
+
+        return concept_activations
+    
+    def compute_dist(self, 
+                    batch_X:torch.Tensor) -> torch.Tensor:
+        return self.(batch_X)
+
+    def forward_projs(self,
+                      concept_projs:torch.Tensor) -> torch.Tensor:
+        return self.classifier(concept_projs)
+
+# Contrastive Semi-Supervised (CSS) VL-CBM
+class css_cbm(CBM_Net):
+
+    TRAINABLE_COMPONENTS = ["concept_projection", 
+                           "classifier"]
+
+    def __init__(self, normalizer, concept_bank, backbone:open_clip_model_CLIP):
+        super().__init__()
+
+        self.concept_bank = concept_bank
+        self.normalizer = normalizer
+        self.backbone:open_clip_model_CLIP = backbone
+        # self.posthoc_layer = model_context.posthoc_layer
+
+        assert hasattr(self.backbone.visual, "output_tokens")
+        self.backbone.visual.output_tokens = True
+        
+
+        self.CAV_layer = CAV(self.concept_bank.vectors, 
+                             self.concept_bank.intercepts, 
+                             self.concept_bank.norms,
+                             self.concept_bank.concept_names.copy())
+        
+        self.concept_projection = nn.Sequential(
+            nn.LayerNorm(768),
+            nn.Linear(768,18)
+        )
+        self.classifier = nn.Sequential(
+            nn.LayerNorm(18),
+            nn.Linear(18,10),
+        )
+
+    def train(self, mode=True):
+        for p in self.backbone.parameters(): p.requires_grad=not mode
+        for p in self.CAV_layer.parameters(): p.requires_grad=not mode
+        super().train(mode)
+
+    def state_dict(self):
+        return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}
+    
+    def get_backbone(self) -> open_clip_model_CLIP:
+        return self.backbone
+    
+    def forward(self, image_pairs):
+        bs, imgs, channels, h, w = image_pairs.shape
+        images = torch.reshape(image_pairs, 
+                               (bs*imgs, channels, h, w))
+        images = self.normalizer(images)
+
+        visual_projection, visual_patches = self.backbone.encode_image(images)
+        concept_projections = self.concept_projection(torch.mean(visual_patches, 
+                                                                 dim=1))
+
+        concept_activations = self.CAV_layer(F.normalize(visual_projection, 
+                                                         dim=-1))
+        concepts = concept_activations + concept_projections
+        #     (bs*2,18)         (bs*2,10)
+        return F.sigmoid(concepts), self.classifier(concepts)
+    
+    def encode_as_concepts(self, 
+                           batch_X:torch.Tensor) -> torch.Tensor:
+        images = self.normalizer(batch_X)
+
+        visual_projection, visual_patches = self.backbone.encode_image(images)
+        concept_projections = self.concept_projection(torch.mean(visual_patches, 
+                                                                 dim=1))
+
+        concept_activations = self.CAV_layer(F.normalize(visual_projection, 
+                                                         dim=-1))
+        concepts = concept_activations + concept_projections
+        #     (bs*2,18)         (bs*2,10)
+        return F.sigmoid(concepts)
+
+    def forward_projs(self,
+                      concept_projs:torch.Tensor) -> torch.Tensor:
+        return self.classifier(concept_projs)

@@ -11,9 +11,17 @@ from typing import Callable, Union
 from scipy.ndimage import gaussian_filter
 
 class layer_grad_cam_vit:
-    def __init__(self, forward_func:Callable, target_layer:nn.Module) -> None:
+    def __init__(self, forward_func:Callable, 
+                    target_layer:nn.Module,
+                    batch_first:bool=False) -> None:
+        # forward_func is a packed function from model
         self.forward_func = forward_func
+        # # model is used for clearing gradients and adjust behaviors of the model
+        # self.model = model
+        # target_layer is used for tracking the gradients while forwarding everytime
         self.target_layer = target_layer
+        self.batch_first = batch_first
+        
         self.gradients:torch.Tensor = None
         self.activations:torch.Tensor = None
         self.handles = []
@@ -24,17 +32,24 @@ class layer_grad_cam_vit:
         
     def save_activation(self, module, input, output):
         activation:torch.Tensor = output
-        self.activations = activation.detach().permute((1, 0, 2))[:, 1:, :]
+        if self.batch_first:
+            self.activations = activation.detach()[:, 1:, :]
+        else:
+            self.activations = activation.detach().permute((1, 0, 2))[:, 1:, :]
 
     def save_gradient(self, module, input, output:torch.Tensor):
         if not hasattr(output, "requires_grad") or not output.requires_grad:
             return
         
         def _store_grad(grad:torch.Tensor):
-            self.gradients = grad.detach().permute((1, 0, 2))[:, 1:, :]
+            if self.batch_first:
+                self.gradients = grad.detach()[:, 1:, :]
+            else:
+                self.gradients = grad.detach().permute((1, 0, 2))[:, 1:, :]
 
         output.register_hook(_store_grad)
     
+
     def attribute(self, batch_X:torch.Tensor, target:Union[torch.Tensor|int], additional_args:dict={}):
         self.gradients:torch.Tensor = None # [B, grid ** 2, F]
         self.activations:torch.Tensor = None # [B, grid ** 2, F]
@@ -42,10 +57,12 @@ class layer_grad_cam_vit:
         output = self.forward_func(batch_X, **additional_args)
         if isinstance(output, tuple) or isinstance(output, list):
             output = output[0]
-            
-        self.forward_func.zero_grad()
-        loss = output[:, target]
-        loss.backward()
+        if isinstance(target, torch.Tensor):
+            loss = output.gather(1, target.view(-1, 1))
+            loss.sum().backward()
+        else:
+            loss = output[:, target]
+            loss.backward()
         
         B, F = self.gradients.size(0), self.gradients.size(2)
         
@@ -61,17 +78,20 @@ class layer_grad_cam_vit:
 class model_explain_algorithm_factory:
     
     @staticmethod
-    def saliency_map(posthoc_concept_net:PCBM_Net,):
-        saliency = Saliency(posthoc_concept_net)
+    def saliency_map(forward_func:Callable,
+                     model:CBM_Net):
+        saliency = Saliency(forward_func)
         return saliency
     
     @staticmethod
-    def integrated_gradient(posthoc_concept_net:PCBM_Net,):
-        integrated_grad = IntegratedGradients(posthoc_concept_net)
+    def integrated_gradient(forward_func:Callable,
+                            model:CBM_Net):
+        integrated_grad = IntegratedGradients(forward_func)
         return integrated_grad
     
     @staticmethod
-    def guided_grad_cam(posthoc_concept_net:PCBM_Net):
+    def guided_grad_cam(forward_func:Callable,
+                        model:CBM_Net):
         raise NotImplementedError
         guided_gradcam = GuidedGradCam(posthoc_concept_net,
                                         getattr(posthoc_concept_net.get_backbone(),
@@ -79,51 +99,56 @@ class model_explain_algorithm_factory:
         return guided_gradcam
     
     @staticmethod
-    def layer_grad_cam(posthoc_concept_net:Union[PCBM_Net, CLIPWrapper]):
+    def layer_grad_cam(forward_func:Callable,
+                       model:CBM_Net):
         layer_grad_cam = None
-        backbone = posthoc_concept_net.backbone
-        if isinstance(posthoc_concept_net, CLIPWrapper):
-            posthoc_concept_net = posthoc_concept_net.backbone.visual
+        backbone = model.get_backbone()
+        if isinstance(model, CLIPWrapper):
+            backbone = model.backbone.visual
 
         if isinstance(backbone, CLIP):
             if isinstance(backbone.visual, ModifiedResNet):
-                layer_grad_cam = LayerGradCam(posthoc_concept_net,
+                layer_grad_cam = LayerGradCam(forward_func,
                                                 backbone.visual.get_submodule("layer4.2"))
 
-            
-            # elif isinstance(backbone.visual, VisionTransformer):
-            #     image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
-            #     # print(image_attn_blocks[0].attn_probs.size())
-            #     # image_attn_blocks = backbone.visual.transformer
-            #     # image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
-            #     # print(image_attn_blocks)
-            #     last_blocks = image_attn_blocks[-2]
-            #     # print(last_blocks)
-            #     layer_grad_cam = LayerGradCam(posthoc_concept_net,
-            #                                     last_blocks)
-            #     # layer_grad_cam = layer_grad_cam_vit(posthoc_concept_net,
-            #     #                                 last_blocks)
         elif isinstance(backbone, open_clip.model.CLIP):
-             if isinstance(backbone.visual, open_clip.model.ModifiedResNet):
-                layer_grad_cam = LayerGradCam(posthoc_concept_net,
+            if isinstance(backbone.visual, open_clip.model.ModifiedResNet):
+                layer_grad_cam = LayerGradCam(forward_func,
                                                 backbone.visual.get_submodule("layer4.2"))
+            elif isinstance(backbone.visual, open_clip.model.VisionTransformer):
+                image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
+                last_blocks = image_attn_blocks[-1].ln_1
+                layer_grad_cam = LayerGradCam(forward_func,
+                                                last_blocks)
             
         elif isinstance(backbone, ResNetBottom):
-            layer_grad_cam = LayerGradCam(posthoc_concept_net,
+            layer_grad_cam = LayerGradCam(forward_func,
                                           backbone.get_submodule("features.0.stage4"))
             # layer_grad_cam = LayerGradCam(posthoc_concept_net,
             #                               backbone.get_submodule("features.0.stage4.unit2.body.conv2.conv"))
+        else:
+            raise NotImplementedError
+        print(layer_grad_cam)
         return layer_grad_cam
     
     @staticmethod
-    def layer_grad_cam_vit(posthoc_concept_net:PCBM_Net):
+    def layer_grad_cam_vit(forward_func:Callable,
+                            model:CBM_Net):
         layer_grad_cam = None
-        backbone = posthoc_concept_net.backbone
+        backbone = model.get_backbone()
+
         if isinstance(backbone, CLIP) and isinstance(backbone.visual, VisionTransformer):
             image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
             last_blocks = image_attn_blocks[-1].ln_1
-            layer_grad_cam = layer_grad_cam_vit(posthoc_concept_net,
-                                            last_blocks)
+            layer_grad_cam = layer_grad_cam_vit(forward_func,
+                                            last_blocks,
+                                            batch_first=False)
+        elif isinstance(backbone, open_clip.model.CLIP) and isinstance(backbone.visual, open_clip.model.VisionTransformer):
+            image_attn_blocks = list(dict(backbone.visual.transformer.resblocks.named_children()).values())
+            last_blocks = image_attn_blocks[-1].ln_1
+            layer_grad_cam = layer_grad_cam_vit(forward_func,
+                                            last_blocks,
+                                            batch_first=backbone.visual.transformer.batch_first)
         else:
             raise NotImplementedError
                     
@@ -143,7 +168,6 @@ class model_explain_algorithm_forward:
         #     expanded_batch_X = expanded_batch_X.reshape(-1, batch_X.size(-3), batch_X.size(-2), batch_X.size(-1))
         #     target = target.view(-1)
 
-
         if isinstance(target, torch.Tensor) and batch_X.size(0) == 1:
             batch_X = batch_X.expand(target.size(0), -1, -1, -1)
         
@@ -151,8 +175,8 @@ class model_explain_algorithm_forward:
     
     @staticmethod
     def saliency_map(batch_X:torch.Tensor,
-                            explain_algorithm:Saliency,
-                            target:Union[torch.Tensor|int]):
+                    explain_algorithm:Saliency,
+                    target:Union[torch.Tensor|int]):
         expanded_batch_X, target = __class__.batch_X_expand(batch_X, target)
         attributions:torch.Tensor = explain_algorithm.attribute(expanded_batch_X, target=target, abs=False)
         return attributions
@@ -167,16 +191,16 @@ class model_explain_algorithm_forward:
     
     @staticmethod
     def guided_grad_cam(batch_X:torch.Tensor,
-                            explain_algorithm:GuidedGradCam,
-                            target:Union[torch.Tensor|int]):
+                        explain_algorithm:GuidedGradCam,
+                        target:Union[torch.Tensor|int]):
         expanded_batch_X, target = __class__.batch_X_expand(batch_X, target)
         attributions:torch.Tensor = explain_algorithm.attribute(expanded_batch_X, target=target)
         return attributions
     
     @staticmethod
     def layer_grad_cam(batch_X:torch.Tensor,
-                            explain_algorithm:LayerGradCam,
-                            target:Union[torch.Tensor|int]):
+                        explain_algorithm:LayerGradCam,
+                        target:Union[torch.Tensor|int]):
         expanded_batch_X, target = __class__.batch_X_expand(batch_X, target)
         attributions:torch.Tensor = explain_algorithm.attribute(expanded_batch_X, target=target)
         upsampled_attr = LayerAttribution.interpolate(attributions, batch_X.size()[-2:], interpolate_mode="bicubic")
@@ -184,8 +208,8 @@ class model_explain_algorithm_forward:
     
     @staticmethod
     def layer_grad_cam_vit(batch_X:torch.Tensor,
-                            explain_algorithm:layer_grad_cam_vit,
-                            target:Union[torch.Tensor|int]):
+                        explain_algorithm:layer_grad_cam_vit,
+                        target:Union[torch.Tensor|int]):
         return __class__.layer_grad_cam(batch_X = batch_X,
                               explain_algorithm = explain_algorithm,
                               target = target)

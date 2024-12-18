@@ -83,24 +83,12 @@ class concept_select_func:
     
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)
-    concept_bank, backbone, dataset, posthoc_layer, posthoc_concept_net, model_context = load_model_pipeline(args)
-    # concept_bank = load_concept_bank(args)
-    # backbone, preprocess = load_backbone(args)
-    # normalizer = transforms.Compose(preprocess.transforms[-1:])
-    # preprocess = transforms.Compose(preprocess.transforms[:-1])
-    
-    # posthoc_layer = load_pcbm(args)
-    # dataset = load_dataset(args, preprocess)
-    
-    # model_context = model_pipeline(concept_bank = concept_bank, 
-    #                posthoc_layer = posthoc_layer, 
-    #                preprocess = preprocess, 
-    #                normalizer = normalizer, 
-    #                backbone = backbone)
-    # posthoc_concept_net = PCBM_Net(model_context=model_context)
-    # posthoc_concept_net.output_type("concepts")
-    
-    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(posthoc_concept_net = posthoc_concept_net)
+    concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
+    model.eval()
+
+    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
+                                                    args.explain_method)(forward_func=model.encode_as_concepts,
+                                                                        model = model)
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
     attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
     targeted_concept_idx = getattr(concept_select_func, args.dataset)(model_context, args.concept_target)
@@ -127,7 +115,7 @@ def main(args:argparse.Namespace):
         attributions = attribution_pooling(batch_X = batch_X,
                                            attributions = attributions,
                                            concept_idx = targeted_concept_idx,
-                                           pcbm_net = posthoc_concept_net)
+                                           pcbm_net = model)
         if args.save_100_local:
             if count == 100:
                 break
@@ -150,7 +138,7 @@ def main(args:argparse.Namespace):
         else:
             for i in range(batch_Y.size(0)):
                 print(f"ground truth: {dataset.idx_to_class[batch_Y[i].item()]}")
-            topK_concept_to_name(args, posthoc_concept_net, batch_X)
+            topK_concept_to_name(args, model, batch_X)
             viz_attn(batch_X,
                     attributions,
                     blur=True,

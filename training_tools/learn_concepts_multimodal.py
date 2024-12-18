@@ -5,6 +5,15 @@ import torch
 import clip
 import argparse
 import numpy as np
+
+import sys
+import os
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, os.pardir))
+sys.path.insert(0, parent_dir)
+
+from utils import *
 from tqdm import tqdm
 
 
@@ -129,14 +138,15 @@ def learn_conceptbank(args, concept_list, scenario):
         concept_dict[concept] = (text_features, None, None, 0, {})
 
     print(f"# concepts: {len(concept_dict)}")
-    concept_dict_path = os.path.join(args.out_dir, f"multimodal_concept_{args.backbone_name.replace('/', '_')}_{scenario}_recurse:{args.recurse}.pkl")
+    concept_dict_path = os.path.join(args.out_dir, f"multimodal_concept_{args.backbone_name.replace('/', '_')}_{scenario}.pkl")
     pickle.dump(concept_dict, open(concept_dict_path, 'wb'))
     print(f"Dumped to : {concept_dict_path}")
 
 
 if __name__ == "__main__":
     args = config()
-    model, _ = clip.load(args.backbone_name.split(":")[1], device=args.device, download_root=args.backbone_ckpt)
+    backbone = load_backbone(args)
+    model = backbone.backbone_model
     concept_cache = {}
 
     if args.classes == "cifar10":
@@ -174,10 +184,8 @@ if __name__ == "__main__":
             all_concepts = list(set(all_concepts).difference(set(all_classes)))
         learn_conceptbank(args, all_concepts, args.classes)
     elif args.classes == "rival10":
-        from torchvision import datasets
-        all_concepts = ['long-snout', 'wings', 'wheels', 'text', 'horns', 'floppy-ears',
-                'ears', 'colored-eyes', 'tail', 'mane', 'beak', 'hairy', 
-                'metallic', 'rectangular', 'wet', 'long', 'tall', 'patterned']
-        learn_conceptbank(args, all_concepts, args.classes)
+        learn_conceptbank(args, RIVAL10_features._ALL_ATTRS, args.classes)
+    elif args.classes == "rival10_CSSCBM":
+        learn_conceptbank(args, RIVAL10_features._ZERO_SHOT_ATTRS, args.classes)
     else:
         raise ValueError(f"Unknown classes: {args.classes}. Define your dataset here!")

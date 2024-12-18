@@ -57,3 +57,24 @@ class RIVAL10_features:
     _ALL_ATTRS = ['long-snout', 'wings', 'wheels', 'text', 'horns', 'floppy-ears',
                 'ears', 'colored-eyes', 'tail', 'mane', 'beak', 'hairy', 
                 'metallic', 'rectangular', 'wet', 'long', 'tall', 'patterned']
+    
+    _ZERO_SHOT_ATTRS = [
+    'an animal with long-snout', 
+    'an animal with  wings', 
+    'a vehicle with wheels', 
+    'has text written on it', 
+    'an animal with  horns', 
+    'an animal with floppy-ears', 
+    'an animal with ears', 
+    'an animal with colored-eyes', 
+    'an object or an animal with a tail', 
+    'an animal with mane', 
+    'an animal with beak', 
+    'an animal with hairy coat', 
+    'an object with a metallic body', 
+    'an object with rectangular shape', 
+    'is damp, wet, or watery ', 
+    'a long object', 
+    'a tall object', 
+    'has patterns on it'
+    ]
