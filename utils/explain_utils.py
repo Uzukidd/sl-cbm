@@ -373,12 +373,13 @@ class CausalMetric(nn.Module):
 #     plt.axis('off')
 #     plt.show()
 
-def attribution_iou(batch_attribution:torch.Tensor, batch_attr_mask:torch.Tensor, eps=1e-10, vis:bool=False):
+def attribution_iou(batch_attribution:torch.Tensor, batch_attr_mask:torch.Tensor, eps=1e-10, vis:bool=False, ind_X:torch.Tensor=None):
     """
         args:
             batch_attribution: [B, ...] (non-binarized/non-positive)
             batch_attr_mask: [B, ...] (non-binarized/non-positive)
     """
+    eps=1e-10
     def binarize(m):
         m = m.clone()
         m[torch.isnan(m)] = 0
@@ -390,12 +391,12 @@ def attribution_iou(batch_attribution:torch.Tensor, batch_attr_mask:torch.Tensor
         m[m<0.5] = 0
         return m
 
-
+    
     binarized_batch_attribution = torch.maximum(batch_attribution, 
                                                 batch_attribution.new_zeros(batch_attribution.size()))
     binarized_batch_attribution = binarize(binarized_batch_attribution)
 
-    binarized_batch_attr_mask = (batch_attr_mask > 0)
+    binarized_batch_attr_mask = batch_attr_mask
     # if vis:
     #     show_mask(binarized_batch_attribution[1])
     #     show_mask(binarized_batch_attr_mask[1])

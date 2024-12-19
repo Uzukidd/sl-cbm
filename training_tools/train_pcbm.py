@@ -3,13 +3,14 @@ import os
 import pickle
 import numpy as np
 import torch
+import time
 from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import roc_auc_score
 
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils import common_utils
+from utils import *
 
 from pcbm.models import PosthocLinearCBM
 from pcbm.training_tools import load_or_compute_projections
@@ -17,12 +18,21 @@ from pcbm.training_tools import load_or_compute_projections
 
 def config():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset-path", required=True, type=str, help="Path to the dataset")
+
+    parser.add_argument("--universal-seed", default=int(time.time()), type=int, help="Universal random seed")
+    
     parser.add_argument("--backbone-ckpt", required=True, type=str, help="Path to the backbone ckpt")
+    parser.add_argument("--backbone-name", default="clip:RN50", type=str)
+    
     parser.add_argument("--concept-bank", required=True, type=str, help="Path to the concept bank")
+    
+    # PCBM, classifier, cub_net, etc
+    parser.add_argument("--pcbm-ckpt", type=str)
+    parser.add_argument("--pcbm-arch", default="css_pcbm", type=str)
+
     parser.add_argument("--out-dir", required=True, type=str, help="Output folder for model/run info.")
     parser.add_argument("--dataset", default="cub", type=str)
-    parser.add_argument("--backbone-name", default="resnet18_cub", type=str)
+
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--seed", default=42, type=int, help="Random seed")
     parser.add_argument("--batch-size", default=64, type=int)
@@ -72,8 +82,8 @@ def run_linear_probe(args, train_data, test_data):
 
 
 
-def main(args, concept_bank, backbone, preprocess):
-    dataset = common_utils.load_dataset(args, preprocess)
+def main(args):
+    concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
     
     # Get a clean conceptbank string
     # e.g. if the path is /../../cub_resnet-cub_0.1_100.pkl, then the conceptbank string is resnet-cub_0.1_100
@@ -81,22 +91,21 @@ def main(args, concept_bank, backbone, preprocess):
     # See `learn_concepts_dataset.py` for details.
     conceptbank_source = args.concept_bank.split("/")[-1].split(".")[0] 
     num_classes = len(dataset.class_to_idx)
-    
-    # Initialize the PCBM module.
-    posthoc_layer = PosthocLinearCBM(concept_bank, idx_to_class=dataset.idx_to_class, n_classes=num_classes)
-    posthoc_layer = posthoc_layer.to(args.device)
 
     # We compute the projections and save to the output directory. This is to save time in tuning hparams / analyzing projections.
-    train_embs, train_projs, train_lbls, test_embs, test_projs, test_lbls = load_or_compute_projections(args, backbone, posthoc_layer, dataset.train_loader, dataset.test_loader)
+    train_projs, train_lbls, test_projs, test_lbls = load_or_compute_projections(args, 
+                                                                                model, 
+                                                                                dataset.train_loader, 
+                                                                                dataset.test_loader)
     
     run_info, weights, bias = run_linear_probe(args, (train_projs, train_lbls), (test_projs, test_lbls))
     
     # Convert from the SGDClassifier module to PCBM module.
-    posthoc_layer.set_weights(weights=weights, bias=bias)
+    model.set_weights(weights=weights, bias=bias)
     # Sorry for the model path hack. Probably i'll change this later.
     model_path = os.path.join(args.out_dir,
                               f"pcbm_{args.dataset}__{args.backbone_name.replace('/', '_')}__{conceptbank_source}__lam:{args.lam}__alpha:{args.alpha}__seed:{args.seed}.ckpt")
-    torch.save(posthoc_layer.state_dict(), model_path)
+    torch.save(model.state_dict(), model_path)
 
     # Again, a sad hack.. Open to suggestions
     run_info_file = model_path.replace("pcbm", "run_info-pcbm")
@@ -107,15 +116,13 @@ def main(args, concept_bank, backbone, preprocess):
         pickle.dump(run_info, f)
 
     
-    if num_classes > 1:
-        # Prints the Top-5 Concept Weigths for each class.
-        print(posthoc_layer.analyze_classifier(k=5))
+    # if num_classes > 1:
+    #     # Prints the Top-5 Concept Weigths for each class.
+    #     print(posthoc_layer.analyze_classifier(k=5))
 
     print(f"Model saved to : {model_path}")
     print(run_info)
 
 if __name__ == "__main__":
     args = config()
-    concept_bank = common_utils.load_concept_bank(args)
-    backbone, preprocess = common_utils.load_backbone(args)
-    main(args, concept_bank, backbone, preprocess)
+    main(args)

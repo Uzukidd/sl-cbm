@@ -223,6 +223,7 @@ def load_concept_bank(args:Union[argparse.Namespace, concept_bank_configure]) ->
     all_concepts = pkl.load(open(args.concept_bank, 'rb'))
     all_concept_names = list(all_concepts.keys())
     print(f"Bank path: {args.concept_bank}. {len(all_concept_names)} concepts will be used.")
+    print(all_concept_names)
     concept_bank = ConceptBank(all_concepts, args.device)
     
     return concept_bank
@@ -382,7 +383,9 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
         )
 
     if args.pcbm_arch == "pcbm":
-        model = PCBM_Net(model_context=model_context)
+        model = clip_cbm(model_context.normalizer, 
+                        model_context.concept_bank, 
+                        model_context.backbone)
         if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
             model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
             print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")

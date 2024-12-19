@@ -256,7 +256,11 @@ class clip_cbm(CBM_Net):
 
     TRAINABLE_COMPONENTS = ["classifier"]
 
-    def __init__(self, normalizer, concept_bank, backbone:Union[open_clip_model_CLIP, clip_model_CLIP]):
+    def __init__(self, normalizer, 
+                 concept_bank:ConceptBank, 
+                 backbone:Union[open_clip_model_CLIP, clip_model_CLIP],
+                 num_of_classes:int=10
+                 ):
         super().__init__()
 
         self.concept_bank = concept_bank
@@ -267,16 +271,23 @@ class clip_cbm(CBM_Net):
                              self.concept_bank.intercepts, 
                              self.concept_bank.norms,
                              self.concept_bank.concept_names.copy())
+        self.num_of_concepts = self.concept_bank.concept_names.__len__()
+        self.num_of_classes = num_of_classes
         
         self.classifier = nn.Sequential(
-            nn.LayerNorm(18),
-            nn.Linear(18,10),
+            nn.LayerNorm(self.num_of_concepts),
+            nn.Linear(self.num_of_concepts, self.num_of_classes),
         )
 
     def train(self, mode=True):
         for p in self.backbone.parameters(): p.requires_grad=not mode
         for p in self.CAV_layer.parameters(): p.requires_grad=not mode
         super().train(mode)
+    
+    def set_weights(self, weights:torch.Tensor, bias:torch.Tensor):
+        self.classifier[1].weight.data = torch.tensor(weights).to(self.classifier[1].weight.device)
+        self.classifier[1].bias.data = torch.tensor(bias).to(self.classifier[1].weight.device)
+        return True
 
     def state_dict(self):
         return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}
@@ -308,7 +319,7 @@ class clip_cbm(CBM_Net):
     
     def compute_dist(self, 
                     batch_X:torch.Tensor) -> torch.Tensor:
-        return self.(batch_X)
+        return self.encode_as_concepts(batch_X)
 
     def forward_projs(self,
                       concept_projs:torch.Tensor) -> torch.Tensor:
@@ -320,13 +331,17 @@ class css_cbm(CBM_Net):
     TRAINABLE_COMPONENTS = ["concept_projection", 
                            "classifier"]
 
-    def __init__(self, normalizer, concept_bank, backbone:open_clip_model_CLIP):
+    def __init__(self, normalizer, 
+                 concept_bank:ConceptBank, 
+                 backbone:open_clip_model_CLIP,
+                 num_of_classes:int=10
+                 ):
         super().__init__()
 
         self.concept_bank = concept_bank
         self.normalizer = normalizer
         self.backbone:open_clip_model_CLIP = backbone
-        # self.posthoc_layer = model_context.posthoc_layer
+        
 
         assert hasattr(self.backbone.visual, "output_tokens")
         self.backbone.visual.output_tokens = True
@@ -336,20 +351,27 @@ class css_cbm(CBM_Net):
                              self.concept_bank.intercepts, 
                              self.concept_bank.norms,
                              self.concept_bank.concept_names.copy())
+        self.num_of_concepts = self.concept_bank.concept_names.__len__()
+        self.num_of_classes = num_of_classes
         
         self.concept_projection = nn.Sequential(
             nn.LayerNorm(768),
-            nn.Linear(768,18)
+            nn.Linear(768, self.num_of_concepts)
         )
         self.classifier = nn.Sequential(
-            nn.LayerNorm(18),
-            nn.Linear(18,10),
+            nn.LayerNorm(self.num_of_concepts),
+            nn.Linear(self.num_of_concepts, self.num_of_classes),
         )
 
     def train(self, mode=True):
         for p in self.backbone.parameters(): p.requires_grad=not mode
         for p in self.CAV_layer.parameters(): p.requires_grad=not mode
         super().train(mode)
+
+    def set_weights(self, weights:torch.Tensor, bias:torch.Tensor):
+        self.classifier[1].weight.data = torch.tensor(weights).to(self.classifier[1].weight.device)
+        self.classifier[1].bias.data = torch.tensor(bias).to(self.classifier[1].weight.device)
+        return True
 
     def state_dict(self):
         return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}

@@ -162,12 +162,44 @@ def interpret_ind_X(args, ind_X, ind_attr, ind_attr_masks, explain_algorithm:Gra
         iou_matrix[splited_mask] = iou.cpu()
 
     return iou_matrix
-    
 
-def interpret_all_concept(args, 
-                        #   batch_X:torch.Tensor,
-                        #   concept_net:Callable[..., torch.Tensor],
-                          
+# viz_attn(batch_X,
+#         attributions,
+#         blur=True,
+#         save_to=None)
+
+def __vis_ind_image(ind_X:torch.Tensor, 
+                    batch_attribution:torch.Tensor,
+                    batch_attr_mask:torch.Tensor,
+                    concept:int):
+    eps=1e-10
+    def binarize(m):
+        m = m.clone()
+        m[torch.isnan(m)] = 0
+
+        max_val = torch.amax(m, dim=(1, 2, 3)).view(-1, 1, 1, 1)
+        max_val[max_val < eps] = eps
+        m = m / max_val
+        m[m>0.5] = 1
+        m[m<0.5] = 0
+        return m
+
+    
+    binarized_batch_attribution = torch.maximum(batch_attribution, 
+                                                batch_attribution.new_zeros(batch_attribution.size()))
+    binarized_batch_attribution = binarize(binarized_batch_attribution)
+
+    binarized_batch_attr_mask = batch_attr_mask
+    print(binarized_batch_attribution[concept].size())
+
+    viz_attn(ind_X[0],
+        binarized_batch_attribution[concept])
+    
+    viz_attn(ind_X[0],
+        binarized_batch_attr_mask[concept])
+
+
+def interpret_all_concept(args,
                           data_loader:DataLoader,
                           explain_algorithm:GradientAttribution,
                           explain_algorithm_forward:Callable,
@@ -198,7 +230,28 @@ def interpret_all_concept(args,
                 target = explain_concept
             )
 
-            iou, dice = attribution_iou(attribution, ind_attr_masks)
+            # eps=1e-10
+            # def binarize(m):
+            #     m = m.clone()
+            #     m[torch.isnan(m)] = 0
+
+            #     max_val = torch.amax(m, dim=(1, 2, 3)).view(-1, 1, 1, 1)
+            #     max_val[max_val < eps] = eps
+            #     m = m / max_val
+            #     m[m>0.5] = 1
+            #     m[m<0.5] = 0
+            #     return m
+
+
+            # binarized_batch_attribution = torch.maximum(attribution.sum(dim=1, keepdim=True), 
+            #                                             attribution.new_zeros(attribution.sum(dim=1, keepdim=True).size()))
+            # binarized_batch_attribution = binarize(binarized_batch_attribution)
+
+            # binarized_batch_attr_mask = (ind_attr_masks > 0)
+            
+            iou, dice = attribution_iou(attribution.sum(dim=1, keepdim=True), ind_attr_masks, ind_X=ind_X)
+            # __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 2)
+            import pdb; pdb.set_trace()
 
             if attrwise_iou[ind_class_label] is None:
                 attrwise_iou[ind_class_label] = image.new_zeros(K)
@@ -215,7 +268,6 @@ def main(args):
     set_random_seed(args.universal_seed)
     concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
     model.eval()
-    # concept_net = getattr(get_concept_net_func, args.backbone_name.split(":")[0])(args, model_context)
 
     explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
                                                     args.explain_method)(forward_func=model.encode_as_concepts,
@@ -232,29 +284,16 @@ def main(args):
                           explain_algorithm, 
                           explain_algorithm_forward,
                           explain_concept)
+
     for label, class_name in enumerate(constants.RIVAL10_features._ALL_CLASSNAMES):
         args.logger.info(f"{class_name}:")
         for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
-            args.logger.info(f" - {name}: {iou:.2f}")
-    # classwise_topK_image = select_act_topK_image(args, backbone, dataset.test_loader)
+            args.logger.info(f" - {name}: {iou:.4f}")
 
-    # images = np.array([[img.permute(1, 2, 0).numpy() for img in row] for row in classwise_topK_image])
+    args.logger.info(f"totall:")
+    for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
+        args.logger.info(f" - {concepts_name}: {attrwise_iou[:, ind].nanmean():.4f}")
 
-    # fig, axes = plt.subplots(10, 10, figsize=(10, 10))
-
-    # for i in range(10):
-    #     for j in range(10):
-    #         axes[i, j].imshow(images[i, j], cmap='gray')
-    #         axes[i, j].axis('off')
-
-    # plt.subplots_adjust(wspace=0.1, hspace=0.1)
-    # plt.show()
-
-    # accuracy = []
-    # for data in tqdm(dataset.test_loader):
-    #     image, label =  data["img"].to(args.device), data["og_class_label"].to(args.device)
-    #     accuracy.append((backbone(image).argmax(1) == label).float().mean().item())
-    # print(np.array(accuracy).mean())
 if __name__ == "__main__":
     args = config()
     args.save_path = os.path.join("./outputs/evals", args.exp_name)
