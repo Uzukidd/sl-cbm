@@ -48,9 +48,15 @@ def config():
     parser.add_argument("--batch-size", default=8, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
     
-    
     parser.add_argument("--lr", default=3e-4, type=float)
+    parser.add_argument("--k", default=3e-1, type=float)
+
+    parser.add_argument("--explain-method", type=str)
+    parser.add_argument('--cross-entropy-regular', action='store_true')
+    parser.add_argument("--loss4-scale", default=1e-3, type=float)
     parser.add_argument('--evaluate', action='store_true')
+
+    parser.add_argument('--not-save-ckpt', action='store_true')
     
     parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
 
@@ -74,11 +80,12 @@ def estimate_top_concepts_accuracy(concept_predictions, concept_labels):
 
     return mini_batch_correct_concepts, mini_batch_total_concepts
 
-def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
+def train_one_epoch(train_data_loader, model, optimizer, loss_fn, regular_loss_fn, device):
     
     contrastive_loss = []
     classifier_loss = []
     concept_loss = []
+    masked_concept_loss = []
 
     sum_correct_pred = 0
     total_samples = 0
@@ -103,6 +110,14 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
 
         #Reseting Gradients
         optimizer.zero_grad()
+        loss4 = None
+        if regular_loss_fn is not None:
+            
+            loss4, _ = regular_loss_fn(images, 
+                                        concept_labels, 
+                                        use_concept_labels,
+                                        model.encode_as_concepts)
+        optimizer.zero_grad()
 
         #Forward
         concept_predictions, class_predictions = model(images)
@@ -111,16 +126,23 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
         loss1, loss2, loss3 = loss_fn(concept_predictions, class_predictions, class_labels, concept_labels, use_concept_labels)
         _loss = loss1 + loss2 + loss3
 
+
+        
+        if loss4 is not None:
+            _loss = _loss + loss4
+
         contrastive_loss.append(loss1.item())
         classifier_loss.append(loss2.item())
         concept_loss.append(loss3.item())
+        if loss4 is not None:
+            masked_concept_loss.append(loss4.item())
 
         #Backward
         _loss.backward()
         optimizer.step()
 
         if i%200 == 0:
-            print("Contrastive Loss = ",np.mean(contrastive_loss), ", Classifier Loss = ",np.mean(classifier_loss),", Concept Loss = ", np.mean(concept_loss))
+            print("Contrastive Loss = ",np.mean(contrastive_loss), ", Classifier Loss = ",np.mean(classifier_loss),", Concept Loss = ", np.mean(concept_loss), ", Masked concept Loss = ", np.mean(masked_concept_loss))
         
         # calculate acc per minibatch
         sum_correct_pred += (torch.argmax(class_predictions, dim=-1) == class_labels).sum().item()
@@ -185,13 +207,39 @@ def val_one_epoch(val_data_loader, model, loss_fn, device):
     total_concept_acc = round(concept_acc/concept_count,4)*100
     return acc, total_concept_acc
 
+def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, concept_bank:ConceptBank):
+
+    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
+                                                    "layer_grad_cam_vit")(forward_func=model.encode_as_concepts,
+                                                                        model = model)
+    explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, "layer_grad_cam_vit")
+    # attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
+    explain_concept:torch.Tensor = torch.arange(0, concept_bank.concept_info.concept_names.__len__()).to(args.device)
+    
+    # Start Rival attrbution alignment evaluation
+    attrwise_iou = interpret_all_concept(args, model,
+                            dataset.test_loader, 
+                            partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
+                            explain_concept)
+
+    for label, class_name in enumerate(constants.RIVAL10_features._ALL_CLASSNAMES):
+        args.logger.info(f"{class_name}:")
+        for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
+            args.logger.info(f" - {name}: {iou:.4f}")
+
+    args.logger.info(f"totall ({attrwise_iou.nanmean():.4f}):")
+    for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
+        args.logger.info(f" - {concepts_name}: {attrwise_iou[:, ind].nanmean():.4f}")
+
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)
     concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
-
+    model.train()
+    
     # Prepare training module
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_func = trinity_loss()
+    regular_loss_func = None
     
     # args.logger.info(f"data size: {args.data_size}")
     args.logger.info("\n\n\n\t Model Loaded")
@@ -202,23 +250,48 @@ def main(args:argparse.Namespace):
         val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, loss_func, args.device)
         args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
         return
+    
+    if args.cross_entropy_regular:
+        # explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
+        #                                             args.explain_method)(forward_func=model.encode_as_concepts,
+        #                                                                 model = model)
+        explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
+                                            args.explain_method)(forward_func=model.direct_encode_as_concepts,
+                                                                model = model)
+        explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
+        regular_loss_func = cross_entropy_concept_loss(model = model,
+                                                        explain_forward = partial(explain_algorithm_forward, 
+                                                        explain_algorithm=explain_algorithm),
+                                                        feature_range = (0.0, 1.0),
+                                                        scale = args.loss4_scale,
+                                                        K = int(args.k * dataset_constants.image_size[-1] * dataset_constants.image_size[-2]))
 
     for epoch in range(5):
         begin = time.time()
 
         ###Training
-        acc, concept_acc = train_one_epoch(dataset.train_loader, model, optimizer, loss_func, args.device)
+        acc, concept_acc = train_one_epoch(dataset.train_loader, model, optimizer, loss_func, regular_loss_func, args.device)
         ###Validation
         val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, loss_func, args.device)
 
-        save_to = os.path.join(args.save_path, f"css_cbm_{args.backbone_name}.pt")
-        torch.save(model.state_dict(), save_to)
+       
+
+        if not args.not_save_ckpt:
+            save_to = os.path.join(args.save_path, f"css_cbm_{args.backbone_name}.pt")
+            torch.save(model.state_dict(), save_to)
 
         args.logger.info('\n\t Epoch.... %d', epoch + 1)
         args.logger.info("\t Train Class Accuracy = {} and Train Concept Accuracy = {}.".format(round(acc,2),round(concept_acc,2)))
         args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
         args.logger.info('\t Time per epoch (in mins) = %d %s', round((time.time()-begin)/60,2),'\n\n')
     
+    ###Evalute attribution alignment
+    rival10_dataset = load_dataset(dataset_configure(
+        dataset = "rival10_full",
+        batch_size = args.batch_size,
+        num_workers = args.num_workers
+    ), backbone.preprocess)
+    eval_attribution_alignment(args, model, rival10_dataset, concept_bank)
     
 if __name__ == "__main__":
     args = config()

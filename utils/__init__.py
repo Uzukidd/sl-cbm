@@ -6,4 +6,5 @@ from .attack_utils import *
 from .visual_utils import *
 from .explain_utils import *
 from .embedding_training_utils import *
+from .eval_utils import *
 from .common_utils import *

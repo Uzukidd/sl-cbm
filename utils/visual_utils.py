@@ -6,20 +6,18 @@ from PIL import Image
 
 from typing import Tuple
 
-def reduce_attn_as_numpy(batch_X:torch.Tensor, attributions:torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
+def reduce_tensor_as_numpy(input:torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
     """
     Args:
-        batch_X: [1, C, W, H]
-        attributions: [C, W, H]
+        input: [1, C, W, H] or [C, W, H]
     
     Returns:
-        batch_X: [W, H, C]
-        attributions: [W, H, C]
+        [W, H, C]
     """
-    return batch_X.squeeze(0).permute((1, 2, 0)).detach().cpu().numpy(),\
-        attributions.permute((1, 2, 0)).detach().cpu().numpy()
+    if input.size().__len__() == 4:
+        input.squeeze_(0)
+    return input.permute((1, 2, 0)).detach().cpu().numpy()
                 
-
 def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):
     import torchvision
     import matplotlib.pyplot as plt
@@ -56,7 +54,8 @@ def getAttMap(img, attn_map, blur=True):
 
 def viz_attn(batch_X:torch.Tensor, attributions:torch.Tensor, blur=True, prefix:str="", save_to:str=None):
     import matplotlib.pyplot as plt
-    batch_X, attributions = reduce_attn_as_numpy(batch_X, attributions)
+    batch_X = reduce_tensor_as_numpy(batch_X)
+    attributions = reduce_tensor_as_numpy(attributions)
     attn_map = getAttMap(batch_X, attributions.sum(2), blur)
 
     if save_to is not None:
@@ -74,8 +73,34 @@ def viz_attn(batch_X:torch.Tensor, attributions:torch.Tensor, blur=True, prefix:
             ax.axis("off")
         plt.show()
         
+def viz_attn_multiple(batch_X:torch.Tensor, attributions:list[torch.Tensor], blur=True, prefix:str="", save_to:str=None):
+    import matplotlib.pyplot as plt
+    batch_X = reduce_tensor_as_numpy(batch_X)
+    attributions = [reduce_tensor_as_numpy(attribution) for attribution in attributions]
+    
+    attn_map = []
+    for attribution in attributions:
+        attn_map.append(getAttMap(batch_X, attribution.sum(2), blur))
+
+    
+    _, axes = plt.subplots(1, 1 + attn_map.__len__(), figsize=(10, 5))
+    axes[0].imshow(np.clip(batch_X, 0.0, 1.0))
+    for idx, map in  enumerate(attn_map):
+        axes[1 + idx].imshow(np.clip(map, 0.0, 1.0))
+    
+    for ax in axes:
+        ax.axis("off")
+    
+    if save_to is not None:
+        os.makedirs(save_to, exist_ok=True)
+        plt.savefig(os.path.join(save_to, f"{prefix}-attn_image.jpg"), bbox_inches='tight', pad_inches=0.1)
+        plt.close()
+    else:
+        plt.show()
+        
 def captum_vis_attn(batch_X:torch.Tensor, attributions:torch.Tensor, title:str=None, save_to:str=None):
-    batch_X, attributions = reduce_attn_as_numpy(batch_X, attributions)
+    batch_X = reduce_tensor_as_numpy(batch_X)
+    attributions = reduce_tensor_as_numpy(attributions)
     figure, axis = visualization.visualize_image_attr_multiple(attributions, 
                                     batch_X, 
                                     signs=["all", 

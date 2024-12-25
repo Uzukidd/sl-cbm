@@ -1,7 +1,10 @@
+import numpy as np
+
 class CLIP_constants:
     pass
 
 class dataset_constants:
+    image_size:np.ndarray = np.array([3, 244, 244])
     CIFAR10_DIR:str = "/home/ksas/Public/datasets/cifar10_concept_bank"
     CIFAR100_DIR:str = "/home/ksas/Public/datasets/cifar100_concept_bank"
     CUB_DATA_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/CUB_200_2011"

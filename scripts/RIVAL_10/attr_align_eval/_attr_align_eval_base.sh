@@ -7,5 +7,6 @@ python attr_align_evalutaion.py --dataset="rival10_full"\
             --pcbm-ckpt="$5"\
             --explain-method="$6"\
             --universal-seed="24"\
-            $7
+            --exp-name="$7"
+            $8
 

@@ -1,13 +1,12 @@
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
-from torch.utils.data import Dataset
-from torchvision import transforms, utils
-import torchvision.transforms.functional as TF
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+
 import os
 import glob
 import json
-import random
 import matplotlib.image as mpimg
 from PIL import Image
 from pathlib import Path
@@ -16,6 +15,7 @@ from binascii import a2b_base64
 from tqdm import tqdm
 
 from .constants import *
+from typing import Callable
 
 # UPDATE _DATA_ROOT to '{path to dir where rival10.zip is unzipped}/RIVAL10/'
 # _DATA_ROOT = "/home/ksas/Public/datasets/RIVAL10/"
@@ -103,29 +103,6 @@ class LocalRIVAL10(Dataset):
 
     def __len__(self):
         return len(self.all_instances)
-
-    # def transform(self, imgs):
-    #     transformed_imgs = []
-    #     i, j, h, w = transforms.RandomResizedCrop.get_params(imgs[0], scale=(0.8,1.0),ratio=(0.75,1.25))
-    #     coin_flip = (random.random() < 0.5)
-    #     for ind, img in enumerate(imgs):
-    #         if self.train:
-    #             img = TF.crop(img, i, j, h, w)
-
-    #             if coin_flip:
-    #                 img = TF.hflip(img)
-
-    #         img = TF.to_tensor(self.resize(img))
-            
-    #         if img.shape[0] == 1:
-    #             img = torch.cat([img, img, img], axis=0)
-            
-    #         if self.normalizer is not None:
-    #             img = self.normalizer(img)
-            
-    #         transformed_imgs.append(img)
-
-    #     return transformed_imgs
 
     def merge_all_masks(self, mask_dict):
         merged_mask = np.zeros((224,224,3))
@@ -295,3 +272,4 @@ class CSS_Rival_Dataset(Dataset):
         use_concept_labels = torch.stack(use_concept_labels,0)
 
         return image_pairs, label_pairs, concept_label_pairs, use_concept_labels
+    

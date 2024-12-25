@@ -128,7 +128,7 @@ class model_explain_algorithm_factory:
             #                               backbone.get_submodule("features.0.stage4.unit2.body.conv2.conv"))
         else:
             raise NotImplementedError
-        print(layer_grad_cam)
+        
         return layer_grad_cam
     
     @staticmethod
@@ -161,7 +161,7 @@ class model_explain_algorithm_forward:
                        target:Union[torch.Tensor|int]):
         """
             batch_X: [B, C, W, H] or batch_X: [1, C, W, H]
-            target: [C, 1]
+            target: [C', 1]
         """
         # if target.size().__len__() == 2:
         #     expanded_batch_X = batch_X.unsqueeze(1).expand(-1, target.size(1), -1, -1, -1)

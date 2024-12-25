@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from typing import Callable
+
 
 class FARE_loss(nn.Module):
     
@@ -75,3 +77,91 @@ class trinity_loss(nn.Module):
         contrasive_loss = self.clip_loss(torch.reshape(predicted_concepts,(int(bs_2/2),2,dim)))
         classification_loss, concept_loss = self.ss_loss(predicted_concepts, class_logits, class_label, concept_label, use_concept_labels)
         return contrasive_loss, classification_loss, concept_loss
+
+    
+class cross_entropy_concept_loss(nn.Module):
+    def __init__(self, model:nn.Module,
+                 explain_forward:Callable[..., torch.Tensor], 
+                 feature_range:tuple[float], 
+                 scale:float,
+                 K:int):
+        super().__init__()
+
+        self.model= model
+        self.K = K
+        self.ce_loss = nn.CrossEntropyLoss()
+        self.feature_range = feature_range
+        self.explain_forward = explain_forward
+        self.scale = scale
+
+    def attribution_masking(self, batch_X:torch.Tensor, 
+                            attributions:torch.Tensor):
+        """
+        batch_X : [B, C, W, H]
+        attrbution : [B, F, W, H]
+        """
+        B, C, W, H = batch_X.size()
+        attributions = attributions.mean(1).abs().view(B, W * H)
+        _, attributions_masked_indices = torch.topk(attributions, self.K, dim=1, largest=False)
+        attributions_masked_indices = attributions_masked_indices.unsqueeze(1).expand(-1, C, -1)
+        
+        _random_values = attributions.new_empty(attributions_masked_indices.size()).uniform_(*self.feature_range)
+        masked_batch_X = batch_X.detach().clone().view(B, C, -1)
+        masked_batch_X.scatter_(2, attributions_masked_indices, _random_values)
+        masked_batch_X = masked_batch_X.view(B, C, W, H)
+
+        return masked_batch_X
+    
+    def forward(self, batch_X:torch.Tensor, 
+                gt_concepts:torch.Tensor,
+                use_concept_labels:torch.Tensor=None,
+                forward_func:Callable[..., torch.Tensor]=None):
+        """
+        batch_X : [B, C, W, H]
+        gt_concepts  : [B, C']
+        """
+        if batch_X.size().__len__() == 5:
+            batch_X = batch_X.view(-1, batch_X.size(-3), batch_X.size(-2), batch_X.size(-1))
+        
+        if use_concept_labels is not None:
+            batch_X = batch_X[use_concept_labels.bool()]
+            gt_concepts = gt_concepts[use_concept_labels.bool()]
+        
+        B, C, W, H = batch_X.size()
+        batch_masked_X = []
+        batch_concepts = []
+        for ind_mask in range(B):
+            
+            ind_X = batch_X[ind_mask:ind_mask+1]
+            ind_concepts = gt_concepts[ind_mask].nonzero().squeeze(1)
+            if ind_concepts.numel() == 0:
+                continue
+            
+            orginal_mode = self.model.training
+            self.model.eval()
+            attributions = self.explain_forward(batch_X = ind_X, target = ind_concepts)
+            self.model.train(orginal_mode)
+
+            masked_X = self.attribution_masking(ind_X.expand(ind_concepts.size(0), -1, -1, -1), attributions)
+            batch_masked_X.append(masked_X)
+            batch_concepts.append(ind_concepts)
+
+        if batch_masked_X.__len__() == 0:
+            return None, None
+        
+        batch_masked_X = torch.concat(batch_masked_X, dim = 0)
+        batch_concepts = torch.concat(batch_concepts, dim = 0)
+
+        if forward_func is not None:
+            predicted_concepts = forward_func(batch_masked_X)
+            loss = self.scale * self.ce_loss(predicted_concepts, batch_concepts)
+            return loss, None
+
+        return batch_masked_X, batch_concepts
+
+        
+ 
+        
+            
+            
+            
