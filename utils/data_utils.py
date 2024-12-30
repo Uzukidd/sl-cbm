@@ -54,7 +54,7 @@ def save_uri_as_img(uri, fpath='tmp.png'):
     return img
 
 class LocalRIVAL10(Dataset):
-    def __init__(self, train=True, classification_output=True, masks_dict=True, transform=None):
+    def __init__(self, train=True, classification_output=True, spss_output=False, masks_dict=True, transform=None):
         '''
         Set masks_dict to be true to include tensor of attribute segmentations when retrieving items.
 
@@ -63,6 +63,7 @@ class LocalRIVAL10(Dataset):
         self.train = train
         self.data_root = dataset_constants.RIVAL10_DIR.format('train' if self.train else 'test')
         self.classification_output = classification_output
+        self.spss_output = spss_output
         self.masks_dict = masks_dict
         self.transform = transform
 
@@ -162,6 +163,9 @@ class LocalRIVAL10(Dataset):
                     'merged_mask' :merged_mask,
                     'og_class_name': class_name,
                     'og_class_label': class_label})
+        
+        if self.spss_output:
+            return out["img"], out["og_class_label"], out["attr_labels"]
 
         if self.classification_output:
             return out["img"], out["og_class_label"]

@@ -13,7 +13,23 @@ class FARE_loss(nn.Module):
     def forward(self, input:torch.Tensor, 
                     target:torch.Tensor):
         pass
+
+class probability_entropy_loss(nn.Module):
+    
+    def __init__(self) -> None:
+        super().__init__()
         
+    def forward(self, input:torch.Tensor, softmax_space:bool=True):
+        """
+            input: [B, N, D]
+        """
+        if not softmax_space:
+            input = F.softmax(input, dim = 2)
+        
+        entropy = -torch.sum(input * torch.log(input + 1e-10), dim=(1, 2)).mean()
+
+        return entropy
+
 
 """
 ###############################################################################################################
@@ -51,7 +67,7 @@ class ss_concept_loss(nn.Module):
 
         self.ce_loss = nn.CrossEntropyLoss()
         self.l1_loss = nn.L1Loss()
-        self.scale = 1.0/1e-4
+        self.scale = 1.0/1e-0
     
     def forward(self, predicted_concepts, class_logits, class_label, concept_label, use_concept_labels):
 
@@ -78,6 +94,41 @@ class trinity_loss(nn.Module):
         classification_loss, concept_loss = self.ss_loss(predicted_concepts, class_logits, class_label, concept_label, use_concept_labels)
         return contrasive_loss, classification_loss, concept_loss
 
+class spss_loss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.ce_loss = nn.CrossEntropyLoss()
+        self.l1_loss = nn.L1Loss()
+        self.pe_loss = probability_entropy_loss()
+        self.scale = 1.0/1e-4
+
+    def forward(self, predicted_concepts, class_logits, class_label, concept_label, token_concepts):
+        classification_loss = self.ce_loss(class_logits, class_label)
+
+        normalized_predicted_concepts = self.scale * predicted_concepts
+        normalized_concept_labels = self.scale * concept_label
+        concept_loss = self.l1_loss(normalized_predicted_concepts, normalized_concept_labels)
+        entropy_loss = self.pe_loss(token_concepts, False)
+
+        return classification_loss, concept_loss, entropy_loss
+    
+class ls_loss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.ce_loss = nn.CrossEntropyLoss()
+        self.l1_loss = nn.L1Loss()
+        self.pe_loss = probability_entropy_loss()
+        self.scale = 1.0/1e-3
+
+    def forward(self, predicted_concepts, class_logits, class_label, concept_label, token_concepts):
+        classification_loss = self.ce_loss(class_logits, class_label)
+
+        normalized_predicted_concepts = self.scale * predicted_concepts
+        normalized_concept_labels = self.scale * concept_label
+        concept_loss = self.l1_loss(normalized_predicted_concepts, normalized_concept_labels)
+        entropy_loss = self.pe_loss(token_concepts, False)
+
+        return classification_loss, concept_loss, entropy_loss
     
 class cross_entropy_concept_loss(nn.Module):
     def __init__(self, model:nn.Module,

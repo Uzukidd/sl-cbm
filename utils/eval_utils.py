@@ -109,10 +109,18 @@ def interpret_all_concept(args,
             iou, dice =  attribution_iou(attribution.sum(dim=1, keepdim=True), ind_attr_masks, ind_X=ind_X)
             
             save_to = os.path.join(args.save_path, "images")
-            if ind_class_name == "car" and idx < 2:
+            if ind_class_name == "car" and idx < 5:
                 __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 2, f"car-{idx}-{batch_mask}", save_to)
-            elif ind_class_name == "plane" and idx < 2:
+            elif ind_class_name == "plane" and idx < 5:
                 __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 1, f"plane-{idx}-{batch_mask}", save_to)
+            elif ind_class_name == "cat" and idx < 5:
+                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 7, f"cat-{idx}-{batch_mask}", save_to)
+            elif ind_class_name == "bird" and idx < 5:
+                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 1, f"bird-{idx}-{batch_mask}", save_to)
+            elif ind_class_name == "deer" and idx < 5:
+                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 4, f"deer-{idx}-{batch_mask}", save_to)
+            elif ind_class_name == "dog" and idx < 5:
+                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 5, f"dog-{idx}-{batch_mask}", save_to)
 
             if attrwise_iou[ind_class_label] is None:
                 attrwise_iou[ind_class_label] = image.new_zeros(K)

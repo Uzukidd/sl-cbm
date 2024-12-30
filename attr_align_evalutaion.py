@@ -199,55 +199,55 @@ def __vis_ind_image(ind_X:torch.Tensor,
         save_to = save_to)
 
 
-def interpret_all_concept(args,
-                          model:CBM_Net,
-                          data_loader:DataLoader,
-                          explain_algorithm_forward:Callable,
-                          explain_concept:torch.Tensor):
+# def interpret_all_concept(args,
+#                           model:CBM_Net,
+#                           data_loader:DataLoader,
+#                           explain_algorithm_forward:Callable,
+#                           explain_concept:torch.Tensor):
     
-    attrwise_iou = [None for i in range(10)]
-    attrwise_amount = [None for i in range(10)]
+#     attrwise_iou = [None for i in range(10)]
+#     attrwise_amount = [None for i in range(10)]
 
-    for idx, data in enumerate(tqdm(data_loader)):
-        image:torch.Tensor =  data["img"].to(args.device)
-        attr_labels:torch.Tensor = data["attr_labels"].to(args.device)
-        attr_masks:torch.Tensor = data["attr_masks"][:, :-1, :, :, :].amax(dim=2, keepdim=True).to(args.device)
-        class_label:torch.Tensor = data["og_class_label"].to(args.device)
-        class_name:torch.Tensor = data["og_class_name"]
+#     for idx, data in enumerate(tqdm(data_loader)):
+#         image:torch.Tensor =  data["img"].to(args.device)
+#         attr_labels:torch.Tensor = data["attr_labels"].to(args.device)
+#         attr_masks:torch.Tensor = data["attr_masks"][:, :-1, :, :, :].amax(dim=2, keepdim=True).to(args.device)
+#         class_label:torch.Tensor = data["og_class_label"].to(args.device)
+#         class_name:torch.Tensor = data["og_class_name"]
 
-        B, C, W, H = image.size()
-        _, K = attr_labels.size()
+#         B, C, W, H = image.size()
+#         _, K = attr_labels.size()
 
-        for batch_mask in range(B):
-            ind_X = image[batch_mask:batch_mask+1]
-            ind_attr_labels = attr_labels[batch_mask]
-            ind_attr_masks = attr_masks[batch_mask]
-            ind_class_name = class_name[batch_mask]
-            ind_class_label = class_label[batch_mask].item()
+#         for batch_mask in range(B):
+#             ind_X = image[batch_mask:batch_mask+1]
+#             ind_attr_labels = attr_labels[batch_mask]
+#             ind_attr_masks = attr_masks[batch_mask]
+#             ind_class_name = class_name[batch_mask]
+#             ind_class_label = class_label[batch_mask].item()
 
-            model.zero_grad()
-            attribution = explain_algorithm_forward(
-                batch_X = ind_X,
-                target = explain_concept
-            )
+#             model.zero_grad()
+#             attribution = explain_algorithm_forward(
+#                 batch_X = ind_X,
+#                 target = explain_concept
+#             )
             
-            iou, dice = attribution_iou(attribution.sum(dim=1, keepdim=True), ind_attr_masks, ind_X=ind_X)
+#             iou, dice = attribution_iou(attribution.sum(dim=1, keepdim=True), ind_attr_masks, ind_X=ind_X)
             
-            save_to = os.path.join(args.save_path, "images")
-            if ind_class_name == "car" and idx < 2:
-                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 2, f"car-{idx}-{batch_mask}", save_to)
-            elif ind_class_name == "plane" and idx < 2:
-                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 1, f"plane-{idx}-{batch_mask}", save_to)
+#             save_to = os.path.join(args.save_path, "images")
+#             if ind_class_name == "car" and idx < 2:
+#                 __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 2, f"car-{idx}-{batch_mask}", save_to)
+#             elif ind_class_name == "plane" and idx < 2:
+#                 __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 1, f"plane-{idx}-{batch_mask}", save_to)
 
-            if attrwise_iou[ind_class_label] is None:
-                attrwise_iou[ind_class_label] = image.new_zeros(K)
-                attrwise_amount[ind_class_label] = image.new_zeros(K)
+#             if attrwise_iou[ind_class_label] is None:
+#                 attrwise_iou[ind_class_label] = image.new_zeros(K)
+#                 attrwise_amount[ind_class_label] = image.new_zeros(K)
             
-            attrwise_amount[ind_class_label] += ind_attr_labels
-            attrwise_iou[ind_class_label] += iou * ind_attr_labels
+#             attrwise_amount[ind_class_label] += ind_attr_labels
+#             attrwise_iou[ind_class_label] += iou * ind_attr_labels
     
-    attrwise_iou = torch.stack(attrwise_iou) / torch.stack(attrwise_amount)
-    return attrwise_iou
+#     attrwise_iou = torch.stack(attrwise_iou) / torch.stack(attrwise_amount)
+#     return attrwise_iou
 
             
 def main(args):

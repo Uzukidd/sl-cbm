@@ -180,6 +180,18 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
                                     shuffle=False, num_workers=args.num_workers)
         test_loader = DataLoader(testset, batch_size=args.batch_size,
                                     shuffle=False, num_workers=args.num_workers)
+    
+    elif args.dataset == "spss_rival10":
+        from utils import LocalRIVAL10
+        trainset = LocalRIVAL10(train=True, classification_output=False, spss_output=True, masks_dict=False, transform=preprocess)
+        testset = LocalRIVAL10(train=False, classification_output=False, spss_output=True, masks_dict=False, transform=preprocess)
+
+        class_to_idx = {c: i for (i,c) in enumerate(RIVAL10_features._ALL_CLASSNAMES)}
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+        train_loader = DataLoader(trainset, batch_size=args.batch_size,
+                                    shuffle=False, num_workers=args.num_workers)
+        test_loader = DataLoader(testset, batch_size=args.batch_size,
+                                    shuffle=False, num_workers=args.num_workers)
         
     elif args.dataset == "css_rival10":
         from utils import CSS_Rival_Dataset
@@ -391,7 +403,23 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
             print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
         model.to(args.device)
     elif args.pcbm_arch == "css_pcbm":
-        model = css_cbm(model_context.normalizer, 
+        model = css_pcbm(model_context.normalizer, 
+                        model_context.concept_bank, 
+                        model_context.backbone)
+        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
+            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
+            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
+        model.to(args.device)
+    elif args.pcbm_arch == "spss_pcbm":
+        model = spss_pcbm(model_context.normalizer, 
+                        model_context.concept_bank, 
+                        model_context.backbone)
+        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
+            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
+            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
+        model.to(args.device)
+    elif args.pcbm_arch == "ls_pcbm":
+        model = ls_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
                         model_context.backbone)
         if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
