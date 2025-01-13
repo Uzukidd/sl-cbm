@@ -9,6 +9,18 @@ from .visual_utils import *
 from .constants import *
 from typing import Callable
 
+eps=1e-10
+def binarize(m):
+    m = m.clone()
+    # m[m < 0] = 0
+    m[torch.isnan(m)] = 0
+
+    max_val = torch.amax(m, dim=(1, 2, 3)).view(-1, 1, 1, 1)
+    max_val[max_val < eps] = eps
+    m = m / max_val
+    m[m>0.5] = 1
+    m[m<0.5] = 0
+    return m
 
 def attribution_iou(batch_attribution:torch.Tensor, batch_attr_mask:torch.Tensor, eps=1e-10, vis:bool=False, ind_X:torch.Tensor=None):
     """
@@ -16,19 +28,7 @@ def attribution_iou(batch_attribution:torch.Tensor, batch_attr_mask:torch.Tensor
             batch_attribution: [B, ...] (non-binarized/non-positive)
             batch_attr_mask: [B, ...] (non-binarized/non-positive)
     """
-    eps=1e-10
-    def binarize(m):
-        m = m.clone()
-        m[torch.isnan(m)] = 0
 
-        max_val = torch.amax(m, dim=(1, 2, 3)).view(-1, 1, 1, 1)
-        max_val[max_val < eps] = eps
-        m = m / max_val
-        m[m>0.5] = 1
-        m[m<0.5] = 0
-        return m
-
-    
     binarized_batch_attribution = torch.maximum(batch_attribution, 
                                                 batch_attribution.new_zeros(batch_attribution.size()))
     binarized_batch_attribution = binarize(binarized_batch_attribution)
@@ -50,17 +50,6 @@ def __vis_ind_image(ind_X:torch.Tensor,
                 concept:int,
                 prefix:str,
                 save_to:str):
-    eps=1e-10
-    def binarize(m):
-        m = m.clone()
-        m[torch.isnan(m)] = 0
-
-        max_val = torch.amax(m, dim=(1, 2, 3)).view(-1, 1, 1, 1)
-        max_val[max_val < eps] = eps
-        m = m / max_val
-        m[m>0.5] = 1
-        m[m<0.5] = 0
-        return m
 
     
     binarized_batch_attribution = torch.maximum(batch_attribution, 
@@ -73,6 +62,31 @@ def __vis_ind_image(ind_X:torch.Tensor,
         [binarized_batch_attr_mask[concept], binarized_batch_attribution[concept]],
         prefix = prefix,
         save_to = save_to)
+    
+def save_key_image(ind_class_name:str, 
+                   ind_X:torch.Tensor, 
+                   attribution:torch.Tensor, 
+                   ind_attr_masks:torch.Tensor,
+                   prefix:str,
+                   save_to:str):
+    if ind_class_name in RIVAL10_features._KEY_FEATURES:
+        for attr_name in RIVAL10_features._KEY_FEATURES[ind_class_name]:
+            attr_label = RIVAL10_features._ALL_ATTRS.index(attr_name)
+            __vis_ind_image(ind_X, attribution, ind_attr_masks, attr_label, f"{ind_class_name}-{attr_name}-{prefix}", save_to)
+
+def save_best_image(ind_class_name:str, 
+                   ind_X:torch.Tensor, 
+                   attribution:torch.Tensor, 
+                   ind_attr_masks:torch.Tensor,
+                   best_iou:torch.Tensor,
+                   iou:torch.Tensor,
+                   save_to:str):
+    if ind_class_name in RIVAL10_features._KEY_FEATURES:
+        for attr_name in RIVAL10_features._KEY_FEATURES[ind_class_name]:
+            attr_label = RIVAL10_features._ALL_ATTRS.index(attr_name)
+            if best_iou[attr_label] <= iou[attr_label]:
+                __vis_ind_image(ind_X, attribution, ind_attr_masks, attr_label, f"{ind_class_name}-{attr_name}-best", save_to)
+
 
 def interpret_all_concept(args,
                         model:nn.Module,
@@ -80,8 +94,11 @@ def interpret_all_concept(args,
                         explain_algorithm_forward:Callable,
                         explain_concept:torch.Tensor):
 
+    attrwise_best_iou = [None for i in range(10)]
     attrwise_iou = [None for i in range(10)]
     attrwise_amount = [None for i in range(10)]
+    
+    save_to = os.path.join(args.save_path, "images")
 
     for idx, data in enumerate(tqdm(data_loader)):
         image:torch.Tensor =  data["img"].to(args.device)
@@ -108,26 +125,32 @@ def interpret_all_concept(args,
             
             iou, dice =  attribution_iou(attribution.sum(dim=1, keepdim=True), ind_attr_masks, ind_X=ind_X)
             
-            save_to = os.path.join(args.save_path, "images")
-            if ind_class_name == "car" and idx < 5:
-                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 2, f"car-{idx}-{batch_mask}", save_to)
-            elif ind_class_name == "plane" and idx < 5:
-                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 1, f"plane-{idx}-{batch_mask}", save_to)
-            elif ind_class_name == "cat" and idx < 5:
-                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 7, f"cat-{idx}-{batch_mask}", save_to)
-            elif ind_class_name == "bird" and idx < 5:
-                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 1, f"bird-{idx}-{batch_mask}", save_to)
-            elif ind_class_name == "deer" and idx < 5:
-                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 4, f"deer-{idx}-{batch_mask}", save_to)
-            elif ind_class_name == "dog" and idx < 5:
-                __vis_ind_image(ind_X, attribution.sum(dim=1, keepdim=True), ind_attr_masks, 5, f"dog-{idx}-{batch_mask}", save_to)
-
+            if idx < 15:
+                save_key_image(ind_class_name, 
+                            ind_X,
+                            attribution.sum(dim=1, keepdim=True),
+                            ind_attr_masks,
+                            f"{idx}:{batch_mask}",
+                            save_to)
+          
             if attrwise_iou[ind_class_label] is None:
                 attrwise_iou[ind_class_label] = image.new_zeros(K)
                 attrwise_amount[ind_class_label] = image.new_zeros(K)
+                attrwise_best_iou[ind_class_label] = image.new_zeros(K)
             
             attrwise_amount[ind_class_label] += ind_attr_labels
             attrwise_iou[ind_class_label] += iou * ind_attr_labels
-    
+            
+            save_best_image(ind_class_name, 
+                            ind_X,
+                            attribution.sum(dim=1, keepdim=True),
+                            ind_attr_masks,
+                            attrwise_best_iou[ind_class_label],
+                            iou * ind_attr_labels,
+                            save_to)
+            attrwise_best_iou[ind_class_label] = torch.max(attrwise_best_iou[ind_class_label], 
+                                                           iou)
+            
+            
     attrwise_iou = torch.stack(attrwise_iou) / torch.stack(attrwise_amount)
     return attrwise_iou

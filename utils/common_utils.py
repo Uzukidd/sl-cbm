@@ -385,7 +385,8 @@ class model_pipeline_configure:
     device:Union[str, torch.device]
 
 def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure], 
-                         model_context:model_pipeline):
+                         model_context:model_pipeline,
+                         num_of_classes:int):
     model = None
     if isinstance(args, argparse.Namespace):
         args = model_pipeline_configure(
@@ -397,7 +398,17 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
     if args.pcbm_arch == "pcbm":
         model = clip_cbm(model_context.normalizer, 
                         model_context.concept_bank, 
-                        model_context.backbone)
+                        model_context.backbone,
+                        num_of_classes)
+        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
+            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
+            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
+        model.to(args.device)
+    elif args.pcbm_arch == "robust_pcbm":
+        model = robust_pcbm(model_context.normalizer, 
+                        model_context.concept_bank, 
+                        model_context.backbone,
+                        num_of_classes)
         if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
             model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
             print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
@@ -405,7 +416,8 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
     elif args.pcbm_arch == "css_pcbm":
         model = css_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
-                        model_context.backbone)
+                        model_context.backbone,
+                        num_of_classes)
         if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
             model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
             print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
@@ -413,7 +425,8 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
     elif args.pcbm_arch == "spss_pcbm":
         model = spss_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
-                        model_context.backbone)
+                        model_context.backbone,
+                        num_of_classes)
         if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
             model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
             print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
@@ -421,7 +434,8 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
     elif args.pcbm_arch == "ls_pcbm":
         model = ls_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
-                        model_context.backbone)
+                        model_context.backbone,
+                        num_of_classes)
         if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
             model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
             print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
@@ -452,7 +466,7 @@ def load_model_pipeline(args:argparse.Namespace):
                    normalizer = backbone.normalizer, 
                    backbone = backbone.backbone_model)
     
-    pcbm_model = build_pcbm_model(args, model_context=model_context)
+    pcbm_model = build_pcbm_model(args, model_context=model_context, num_of_classes=dataset.idx_to_class.__len__())
 
     return concept_bank, backbone, dataset, model_context, pcbm_model
 

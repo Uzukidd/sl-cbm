@@ -1,9 +1,13 @@
+# Custom 
+test_tap.py
+data/*
+outputs/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-data/*
-outputs/*
+
 # C extensions
 *.so
 

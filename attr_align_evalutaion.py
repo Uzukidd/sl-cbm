@@ -273,6 +273,7 @@ def main(args):
                             partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
                             explain_concept)
 
+    torch.save(attrwise_iou.detach().cpu(), os.path.join(args.save_path, "iou_info.pt"))
     for label, class_name in enumerate(constants.RIVAL10_features._ALL_CLASSNAMES):
         args.logger.info(f"{class_name}:")
         for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):

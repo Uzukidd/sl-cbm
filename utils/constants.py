@@ -5,8 +5,8 @@ class CLIP_constants:
 
 class dataset_constants:
     image_size:np.ndarray = np.array([3, 244, 244])
-    CIFAR10_DIR:str = "/home/ksas/Public/datasets/cifar10_concept_bank"
-    CIFAR100_DIR:str = "/home/ksas/Public/datasets/cifar100_concept_bank"
+    CIFAR10_DIR:str = "/home/ksas/Public/datasets/CIFAR10"
+    CIFAR100_DIR:str = "/home/ksas/Public/datasets/CIFAR100"
     CUB_DATA_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/CUB_200_2011"
     CUB_PROCESSED_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/class_attr_data_10"
     RIVAL10_DIR:str = "/home/ksas/Public/datasets/RIVAL10/{}/"
@@ -81,3 +81,12 @@ class RIVAL10_features:
     'a tall object', 
     'has patterns on it'
     ]
+    
+    _KEY_FEATURES = {
+        "car" : ["wheels", ],
+        "plane" : ["wings"],
+        "cat" : ["colored-eyes"],
+        "bird" : ["wings"],
+        "deer" : ["horns", "colored-eyes"],
+        "dog" : ["floppy-ears"],
+    }

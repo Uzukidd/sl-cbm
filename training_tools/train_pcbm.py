@@ -28,7 +28,7 @@ def config():
     
     # PCBM, classifier, cub_net, etc
     parser.add_argument("--pcbm-ckpt", type=str)
-    parser.add_argument("--pcbm-arch", default="css_pcbm", type=str)
+    parser.add_argument("--pcbm-arch", default="pcbm", type=str)
 
     parser.add_argument("--out-dir", required=True, type=str, help="Output folder for model/run info.")
     parser.add_argument("--dataset", default="cub", type=str)

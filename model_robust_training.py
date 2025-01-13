@@ -51,6 +51,8 @@ def config():
     
     parser.add_argument("--train-method", required=True, type=str)
     parser.add_argument("--train-embedding", action='store_true')
+    parser.add_argument('--not-save-ckpt', action='store_true')
+
     
     parser.add_argument("--lr", default=1e-4, type=float)
     parser.add_argument("--eps", default=0.025, type=float)
@@ -105,68 +107,65 @@ def training_forward_func(loss:torch.Tensor,
     loss.backward()
     optimizer.step()
 
-class prepare_classification_model:
+# class prepare_classification_model:
     
-    @staticmethod
-    def clip(args:argparse.Namespace,
-              posthoc_concept_net:PCBM_Net):
-        posthoc_concept_net.posthoc_layer.classifier.weight.requires_grad_(False)
-        posthoc_concept_net.posthoc_layer.classifier.bias.requires_grad_(False)
+#     @staticmethod
+#     def clip(args:argparse.Namespace,
+#               posthoc_concept_net:PCBM_Net):
+#         posthoc_concept_net.posthoc_layer.classifier.weight.requires_grad_(False)
+#         posthoc_concept_net.posthoc_layer.classifier.bias.requires_grad_(False)
 
-        return posthoc_concept_net
+#         return posthoc_concept_net
     
-    @staticmethod
-    def open_clip(args:argparse.Namespace,
-              posthoc_concept_net:PCBM_Net):
-        return __class__.clip(args, 
-                              posthoc_concept_net)
+#     @staticmethod
+#     def open_clip(args:argparse.Namespace,
+#               posthoc_concept_net:PCBM_Net):
+#         return __class__.clip(args, 
+#                               posthoc_concept_net)
         
-    @staticmethod
-    def resnet18_cub(args:argparse.Namespace,
-              posthoc_concept_net:PCBM_Net):
-        return posthoc_concept_net.backbone
+#     @staticmethod
+#     def resnet18_cub(args:argparse.Namespace,
+#               posthoc_concept_net:PCBM_Net):
+#         return posthoc_concept_net.backbone
     
-class save_checkpoint:
+# class save_checkpoint:
     
-    @staticmethod
-    def clip(args:argparse.Namespace, 
-             model:PCBM_Net):
-        torch.save({"state_dict": model.backbone.state_dict()}, 
-                   os.path.join(args.save_path, f"{args.train_method}-{args.backbone_name.replace("/", "-")}.pth"))
+#     @staticmethod
+#     def clip(args:argparse.Namespace, 
+#              model:PCBM_Net):
+#         torch.save({"state_dict": model.backbone.state_dict()}, 
+#                    os.path.join(args.save_path, f"{args.train_method}-{args.backbone_name.replace("/", "-")}.pth"))
         
-    @staticmethod
-    def open_clip(args:argparse.Namespace, 
-                  model:PCBM_Net):
-        return __class__.clip(args, 
-                              model)
+#     @staticmethod
+#     def open_clip(args:argparse.Namespace, 
+#                   model:PCBM_Net):
+#         return __class__.clip(args, 
+#                               model)
     
-    @staticmethod
-    def resnet18_cub(args:argparse.Namespace, 
-                     model:nn.Module):
-        return torch.save({"state_dict": model.state_dict()}, 
-                          os.path.join(args.save_path, f"{args.train_method}-{args.backbone_name.replace("/", "-")}.pth"))
+#     @staticmethod
+#     def resnet18_cub(args:argparse.Namespace, 
+#                      model:nn.Module):
+#         return torch.save({"state_dict": model.state_dict()}, 
+#                           os.path.join(args.save_path, f"{args.train_method}-{args.backbone_name.replace("/", "-")}.pth"))
 
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)
 
-    set_random_seed(args.universal_seed)
-    concept_bank, backbone, dataset, posthoc_layer, posthoc_concept_net, model_context = load_model_pipeline(args)
+    concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
     args.data_size = dataset.trainset[0][0].size()
-    
-    # Get the trainable model
-    backbone_arch = args.backbone_name.split(":")[0]
-    model:nn.Module = getattr(prepare_classification_model, backbone_arch)(args = args, posthoc_concept_net=posthoc_concept_net,)
+    args.logger.info(f"Trainable components: {model.TRAINABLE_COMPONENTS}")
     
     # Get explain algorithm
-    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(posthoc_concept_net = model)
+    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, args.explain_method)(forward_func=model.classify, model = model)
     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
     
     # Prepare training module
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     loss_func = nn.CrossEntropyLoss()
     
-    print(f"data size: {args.data_size}")
+    args.logger.info(f"data size: {args.data_size}")
     asgt_module = robust_training(model = model, 
+                        model_forward_func=model.classify,
                        training_forward_func = partial(training_forward_func,
                                                        model = model,
                                                        optimizer = optimizer),
@@ -195,19 +194,32 @@ def main(args:argparse.Namespace):
     #                    feature_range= (0.0, 1.0),
     #                    device=torch.device(args.device))
     
-    asgt_module.evaluate_model(dataset.train_loader)
-    asgt_module.evaluate_model(dataset.test_loader)
-    asgt_module.evaluate_model_robustness(dataset.test_loader)
+    totall_accuracy = asgt_module.evaluate_model(dataset.train_loader)
+    args.logger.info(f"Accuracy: {100 * totall_accuracy:.2f}%")
+
+    totall_accuracy = asgt_module.evaluate_model(dataset.test_loader)
+    args.logger.info(f"Accuracy: {100 * totall_accuracy:.2f}%")
+
+    totall_accuracy = asgt_module.evaluate_model_robustness(dataset.test_loader)
+    args.logger.info(f"Robustness accuracy: {100 * totall_accuracy:.2f}%")
         
     num_epoches = 10
     for epoch in range(num_epoches):
         running_loss = asgt_module.train_one_epoch(dataset.train_loader)
-        print(f"Epoch [{epoch + 1}/{num_epoches}], Loss: {running_loss / len(dataset.train_loader):.4f}")
-        getattr(save_checkpoint, backbone_arch)(args=args, 
-                                                model = model)
-        asgt_module.evaluate_model(dataset.train_loader)
-        asgt_module.evaluate_model(dataset.test_loader)
-        robustness = asgt_module.evaluate_model_robustness(dataset.test_loader)
+        args.logger.info(f"Epoch [{epoch + 1}/{num_epoches}], Loss: {running_loss / len(dataset.train_loader):.4f}")
+        
+        if not args.not_save_ckpt:
+            save_to = os.path.join(args.save_path, f"{args.pcbm_arch}_{args.backbone_name}.pt")
+            torch.save({"state_dict": model.backbone.state_dict()}, save_to)
+        
+            totall_accuracy = asgt_module.evaluate_model(dataset.train_loader)
+            args.logger.info(f"Accuracy: {100 * totall_accuracy:.2f}%")
+
+            totall_accuracy = asgt_module.evaluate_model(dataset.test_loader)
+            args.logger.info(f"Accuracy: {100 * totall_accuracy:.2f}%")
+
+            totall_accuracy = asgt_module.evaluate_model_robustness(dataset.test_loader)
+            args.logger.info(f"Robustness accuracy: {100 * totall_accuracy:.2f}%")
     
     
 if __name__ == "__main__":

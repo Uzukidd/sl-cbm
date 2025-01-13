@@ -15,7 +15,7 @@ def reduce_tensor_as_numpy(input:torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
         [W, H, C]
     """
     if input.size().__len__() == 4:
-        input.squeeze_(0)
+        input.detach_().squeeze_(0)
     return input.permute((1, 2, 0)).detach().cpu().numpy()
                 
 def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):

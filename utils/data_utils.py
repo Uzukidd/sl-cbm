@@ -147,6 +147,7 @@ class LocalRIVAL10(Dataset):
                 with open(mask_dict_path, 'rb') as fp:
                     mask_dict = pickle.load(fp)
             except:
+                print(f"Error occured when loading {mask_dict_path}!")
                 mask_dict = dict()
 
             for attr in mask_dict:

@@ -53,7 +53,7 @@ def config():
 
     parser.add_argument("--explain-method", type=str)
     parser.add_argument('--cross-entropy-regular', action='store_true')
-    parser.add_argument("--loss4-scale", default=1e-3, type=float)
+    # parser.add_argument("--loss4-scale", default=1e-3, type=float)
     parser.add_argument('--evaluate', action='store_true')
 
     parser.add_argument('--not-save-ckpt', action='store_true')
@@ -196,9 +196,9 @@ def val_one_epoch(val_data_loader, model, loss_fn, device):
 def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, concept_bank:ConceptBank):
 
     explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
-                                                    "layer_grad_cam_vit")(forward_func=model.encode_as_concepts,
+                                                    args.explain_method)(forward_func=model.encode_as_concepts,
                                                                         model = model)
-    explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, "layer_grad_cam_vit")
+    explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
     # attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
     explain_concept:torch.Tensor = torch.arange(0, concept_bank.concept_info.concept_names.__len__()).to(args.device)
     
@@ -208,6 +208,7 @@ def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, 
                             partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
                             explain_concept)
 
+    torch.save(attrwise_iou.detach().cpu(), os.path.save(args.save_path, "iou_info.pt"))
     for label, class_name in enumerate(constants.RIVAL10_features._ALL_CLASSNAMES):
         args.logger.info(f"{class_name}:")
         for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
@@ -246,7 +247,7 @@ def main(args:argparse.Namespace):
         val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, loss_func, args.device)
 
         if not args.not_save_ckpt:
-            save_to = os.path.join(args.save_path, f"css_cbm_{args.backbone_name}.pt")
+            save_to = os.path.join(args.save_path, f"spss_cbm_{args.backbone_name}.pt")
             torch.save(model.state_dict(), save_to)
 
         args.logger.info('\n\t Epoch.... %d', epoch + 1)

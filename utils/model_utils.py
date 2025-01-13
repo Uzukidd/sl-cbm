@@ -130,6 +130,10 @@ class CBM_Net(ABC, nn.Module):
     # def get_pcbm_pipeline(self) -> nn.Module:
     #     pass
 
+    def attribute(self,
+                  batch_X:torch.Tensor,
+                  target:Union[torch.Tensor|int], additional_args:dict={}) -> torch.Tensor:
+        raise NotImplementedError
 
     @abstractmethod
     def get_backbone(self) -> nn.Module:
@@ -271,22 +275,20 @@ class clip_cbm(CBM_Net):
                              self.concept_bank.intercepts, 
                              self.concept_bank.norms,
                              self.concept_bank.concept_names.copy())
+        for p in self.CAV_layer.parameters(): p.requires_grad=False
+        
         self.num_of_concepts = self.concept_bank.concept_names.__len__()
         self.num_of_classes = num_of_classes
         
-        self.classifier = nn.Sequential(
-            nn.LayerNorm(self.num_of_concepts),
-            nn.Linear(self.num_of_concepts, self.num_of_classes),
-        )
-
+        self.classifier = nn.Linear(self.num_of_concepts, self.num_of_classes)
+        
     def train(self, mode=True):
         for p in self.backbone.parameters(): p.requires_grad=not mode
-        for p in self.CAV_layer.parameters(): p.requires_grad=not mode
         super().train(mode)
     
     def set_weights(self, weights:torch.Tensor, bias:torch.Tensor):
-        self.classifier[1].weight.data = torch.tensor(weights).to(self.classifier[1].weight.device)
-        self.classifier[1].bias.data = torch.tensor(bias).to(self.classifier[1].weight.device)
+        self.classifier.weight.data = torch.tensor(weights).to(self.classifier.weight.device)
+        self.classifier.bias.data = torch.tensor(bias).to(self.classifier.weight.device)
         return True
 
     def state_dict(self):
@@ -295,13 +297,18 @@ class clip_cbm(CBM_Net):
     def get_backbone(self) -> open_clip_model_CLIP:
         return self.backbone
     
+    def classify(self, 
+                 batch_X:torch.Tensor) -> torch.Tensor:
+        return self.forward(batch_X=batch_X)
+    
     def forward(self, 
                 batch_X:torch.Tensor) -> torch.Tensor:
         B, C, H, W = batch_X.size()
+        
+        if self.normalizer is not None:
+            batch_X = self.normalizer(batch_X)
 
-        images = self.normalizer(batch_X)
-
-        visual_projection = self.backbone.encode_image(images)
+        visual_projection = self.backbone.encode_image(batch_X)
         concept_activations = self.CAV_layer(visual_projection)
 
         return self.classifier(concept_activations)
@@ -309,10 +316,11 @@ class clip_cbm(CBM_Net):
     def encode_as_concepts(self, 
                            batch_X:torch.Tensor) -> torch.Tensor:
         B, C, H, W = batch_X.size()
+        
+        if self.normalizer is not None:
+            batch_X = self.normalizer(batch_X)
 
-        images = self.normalizer(batch_X)
-
-        visual_projection = self.backbone.encode_image(images)
+        visual_projection = self.backbone.encode_image(batch_X)
         concept_activations = self.CAV_layer(visual_projection)
 
         return concept_activations
@@ -324,6 +332,23 @@ class clip_cbm(CBM_Net):
     def forward_projs(self,
                       concept_projs:torch.Tensor) -> torch.Tensor:
         return self.classifier(concept_projs)
+    
+class robust_pcbm(clip_cbm):
+    
+    TRAINABLE_COMPONENTS = ["backbone"]
+
+    def __init__(self, normalizer, 
+                 concept_bank:ConceptBank, 
+                 backbone:Union[open_clip_model_CLIP, clip_model_CLIP],
+                 num_of_classes:int=10
+                 ):
+        super().__init__(normalizer, concept_bank, backbone, num_of_classes)
+        
+    def train(self, mode=True):
+        super().train(mode)
+        for p in self.backbone.parameters(): p.requires_grad=True
+        for p in self.classifier.parameters(): p.requires_grad=False
+        
 
 # Contrastive Semi-Supervised (CSS) VL-CBM
 class css_pcbm(CBM_Net):
@@ -421,6 +446,7 @@ class css_pcbm(CBM_Net):
         #     (bs*2,18) 
         return F.sigmoid(concepts)
 
+        
     def forward_projs(self,
                       concept_projs:torch.Tensor) -> torch.Tensor:
         return self.classifier(concept_projs)
@@ -534,7 +560,7 @@ class spss_pcbm(CBM_Net):
         self.backbone.visual.output_tokens = True
         
 
-        self.cavs:torch.Tensor = self.concept_bank.vectors # [18, D]
+        self.cavs:torch.Tensor = self.concept_bank.vectors.detach().clone() # [18, D]
         self.concept_names:list[str] = self.concept_bank.concept_names.copy()
 
         self.n_concepts = self.cavs.shape[0]
@@ -557,6 +583,9 @@ class spss_pcbm(CBM_Net):
             nn.LayerNorm(self.num_of_concepts),
             nn.Linear(self.num_of_concepts, self.num_of_classes),
         )
+
+    def get_expalainable_component(self):
+        return self.simpool
 
     def train(self, mode=True):
         for p in self.backbone.parameters(): p.requires_grad=not mode
@@ -593,16 +622,56 @@ class spss_pcbm(CBM_Net):
         _, visual_patches = self.backbone.encode_image(images)
 
         # 1x1 convolution
-        token_concepts = self.token_projection(visual_patches) # [B, W * H, D] -> [B, 1, C]
+        token_concepts = self.token_projection(visual_patches) # [B, W * H, D] -> [B, W * H, C]
+        # token_concepts = F.softmax(token_concepts, dim=2)
 
         # prepare cavs as query
-        pooled_cavs = self.cavs.mean(1).unsqueeze(0).unsqueeze(0).expand((B, -1, -1)) # [C, D]-> [B, W * H, C]
+        pooled_cavs = self.cavs.mean(1).unsqueeze(0).unsqueeze(0).expand((B, -1, -1)) # [C, D]-> [B, 1, C]
 
         pooled_tokens = self.simpool(token_concepts, pooled_cavs) # [B, C]
-        
+        # import pdb; pdb.set_trace()
         if return_token_concepts:
             return pooled_tokens, token_concepts
         return pooled_tokens
+    
+    def attribute(self,
+                  batch_X:torch.Tensor,
+                  target:Union[torch.Tensor|int], 
+                  additional_args:dict={}) -> torch.Tensor:
+        """
+            Args:
+                batch_X: [B, C, W, H]
+                target: int/[B, 1]
+            Return:
+                attribution: [B, 1, _grid, _grid]
+        """
+        # [C] [B, grid * grid, C]
+        _, token_concepts = self.encode_as_concepts(batch_X, return_token_concepts=True)
+        B, N, C = token_concepts.size()
+        # token_concepts = F.softmax(token_concepts, dim=2)
+        if isinstance(target, torch.Tensor):
+            # [B, grid * grid, C]
+            expanded_target = target.unsqueeze(1).unsqueeze(1).expand(-1, N, -1) # [B, N]
+            attribution = token_concepts.gather(dim=2, index=expanded_target)# [B, grid * grid, 1]
+        else:
+            # [1, grid * grid, C]
+            attribution = token_concepts[:, :, target:target+1] # [1, grid * grid, 1]
+        
+        # [B, grid * grid, 1] -> # [B, 1, grid, grid]
+        _grid = int(np.round(np.sqrt(N)))
+        
+        attribution = attribution.permute((0, 2, 1)).view(B, 1, _grid, _grid)
+            
+        
+        # B, F = self.gradients.size(0), self.gradients.size(2)
+        
+        # importance_weights = self.gradients.mean(dim=(1)) # [B, F]
+        
+        # weighted_activations = importance_weights[:, None, :] * self.activations # [B, grid ** 2, F]
+        # weighted_activations = weighted_activations.permute(0, 2, 1) # [B, F, grid ** 2]
+        # _grid = int(np.round(np.sqrt(weighted_activations.size(2))))
+
+        return attribution
 
     def forward_projs(self,
                       concept_projs:torch.Tensor) -> torch.Tensor:
@@ -651,7 +720,7 @@ class ls_pcbm(CBM_Net):
             nn.LayerNorm(self.num_of_concepts),
             nn.Linear(self.num_of_concepts, self.num_of_classes),
         )
-
+    
     def train(self, mode=True):
         for p in self.backbone.parameters(): p.requires_grad=not mode
         for p in self.CAV_layer.parameters(): p.requires_grad=not mode
@@ -675,7 +744,8 @@ class ls_pcbm(CBM_Net):
                                 (B * N, C, W, H))
         else:
             images = input_X
-        pooled_concepts, token_concepts = self.encode_as_concepts(images, return_token_concepts=True)
+        pooled_concepts, token_concepts, token_labels = self.encode_as_concepts(images, return_token_concepts=True)
+        
         #     (bs*2,C)         (bs*2,Class)
         return pooled_concepts, self.classifier(pooled_concepts), token_concepts
     
@@ -686,14 +756,15 @@ class ls_pcbm(CBM_Net):
         images = self.normalizer(batch_X)
 
         _, visual_patches = self.backbone.encode_image(images)
-
+        
         # 1x1 convolution
         token_embedding:torch.Tensor = self.token_projection(visual_patches) # [B, W * H, D] -> [B, W * H, C]
         token_concepts:torch.Tensor = self.CAV_layer(token_embedding.view(visual_patches.size(0) * visual_patches.size(1), -1))
-        token_concepts = token_concepts.view(visual_patches.size(0), visual_patches.size(1), -1)
         
+        token_concepts = token_concepts.view(visual_patches.size(0), visual_patches.size(1), -1) # [B, W * H, Score]
+        token_labels = token_concepts.argmax(2)
         if return_token_concepts:
-            return token_concepts.max(1)[0], token_concepts
+            return token_concepts.max(1)[0], token_concepts, token_labels
         return token_concepts.max(1)[0]
 
     def forward_projs(self,

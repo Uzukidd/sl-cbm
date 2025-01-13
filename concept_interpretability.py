@@ -37,7 +37,7 @@ def config():
     
     parser.add_argument("--concept-bank", required=True, type=str, help="Path to the concept bank")
 
-    parser.add_argument("--pcbm-arch", default="PCBM", type=str)
+    parser.add_argument("--pcbm-arch", default="pcbm", type=str)
     parser.add_argument("--pcbm-ckpt", required=True, type=str, help="Path to the PCBM checkpoint")
     parser.add_argument("--explain-method", required=True, type=str)
     parser.add_argument("--concept-pooling", default="max_pooling_class_wise", type=str)
