@@ -234,7 +234,7 @@ if __name__ == "__main__":
     args.logger.info(args_json)
     args.logger.info(f"universal seed: {args.universal_seed}")
     if not torch.cuda.is_available():
-        args.device = "cpu"
+        args.device = torch.device("cpu")
         args.logger.info(f"GPU devices failed. Change to {args.device}")
     main(args)
     

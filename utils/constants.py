@@ -9,7 +9,7 @@ class dataset_constants:
     CIFAR100_DIR:str = "/home/ksas/Public/datasets/CIFAR100"
     CUB_DATA_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/CUB_200_2011"
     CUB_PROCESSED_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/class_attr_data_10"
-    RIVAL10_DIR:str = "/home/ksas/Public/datasets/RIVAL10/{}/"
+    RIVAL10_DIR:str = "/home/ksas/Public/datasets/RIVAL10/"
 
 class CUB_features:
     # body part = (min, max)
@@ -50,43 +50,3 @@ class CUB_features:
 
 class model_zoo:
     CLIP:str = "/home/ksas/Public/model_zoo/clip"
-
-class RIVAL10_features:
-    _LABEL_MAPPINGS = './utils/RIVAL10/label_mappings.json'
-    _WNID_TO_CLASS = './utils/RIVAL10/wnid_to_class.json'
-
-    _ALL_CLASSNAMES = ["truck", "car", "plane", "ship", "cat", "dog", "equine", "deer", "frog", "bird"]
-
-    _ALL_ATTRS = ['long-snout', 'wings', 'wheels', 'text', 'horns', 'floppy-ears',
-                'ears', 'colored-eyes', 'tail', 'mane', 'beak', 'hairy', 
-                'metallic', 'rectangular', 'wet', 'long', 'tall', 'patterned']
-    
-    _ZERO_SHOT_ATTRS = [
-    'an animal with long-snout', 
-    'an animal with  wings', 
-    'a vehicle with wheels', 
-    'has text written on it', 
-    'an animal with  horns', 
-    'an animal with floppy-ears', 
-    'an animal with ears', 
-    'an animal with colored-eyes', 
-    'an object or an animal with a tail', 
-    'an animal with mane', 
-    'an animal with beak', 
-    'an animal with hairy coat', 
-    'an object with a metallic body', 
-    'an object with rectangular shape', 
-    'is damp, wet, or watery ', 
-    'a long object', 
-    'a tall object', 
-    'has patterns on it'
-    ]
-    
-    _KEY_FEATURES = {
-        "car" : ["wheels", ],
-        "plane" : ["wings"],
-        "cat" : ["colored-eyes"],
-        "bird" : ["wings"],
-        "deer" : ["horns", "colored-eyes"],
-        "dog" : ["floppy-ears"],
-    }

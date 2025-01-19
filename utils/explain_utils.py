@@ -250,7 +250,7 @@ class attribution_pooling_forward:
     def max_pooling_class_wise(batch_X:torch.Tensor,
                                attributions:torch.Tensor,
                                concept_idx:Union[torch.Tensor, int],
-                               pcbm_net:PCBM_Net):
+                               pcbm_net:CBM_Net):
         if isinstance(concept_idx, int):
             return attributions.squeeze(0)
         
@@ -262,14 +262,14 @@ class attribution_pooling_forward:
     def max_pooling_channel_wise(batch_X:torch.Tensor,
                                attributions:torch.Tensor,
                                concept_idx:Union[torch.Tensor, int],
-                               pcbm_net:PCBM_Net):
+                               pcbm_net:CBM_Net):
         return attributions.max(0).values
     
     @staticmethod
     def mean_pooling(batch_X:torch.Tensor,
                                attributions:torch.Tensor,
                                concept_idx:Union[torch.Tensor, int],
-                               pcbm_net:PCBM_Net):
+                               pcbm_net:CBM_Net):
         return attributions.mean(0)
 
 # Author: Felipe Torres Figueroa - felipe.torres@lis-lab.fr

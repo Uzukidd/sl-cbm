@@ -49,11 +49,8 @@ def config():
     parser.add_argument("--num-workers", default=4, type=int)
     
     parser.add_argument("--lr", default=3e-4, type=float)
-    parser.add_argument("--k", default=3e-1, type=float)
 
     parser.add_argument("--explain-method", type=str)
-    parser.add_argument('--cross-entropy-regular', action='store_true')
-    parser.add_argument("--loss4-scale", default=1e-3, type=float)
     parser.add_argument('--evaluate', action='store_true')
 
     parser.add_argument('--not-save-ckpt', action='store_true')
@@ -120,7 +117,7 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, regular_loss_f
         optimizer.zero_grad()
 
         #Forward
-        concept_predictions, class_predictions = model(images)
+        concept_predictions, class_predictions, _ = model(images)
 
         #Calculating Loss
         loss1, loss2, loss3 = loss_fn(concept_predictions, class_predictions, class_labels, concept_labels, use_concept_labels)
@@ -187,7 +184,7 @@ def val_one_epoch(val_data_loader, model, loss_fn, device):
             use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
 
             #Forward
-            concept_predictions, class_predictions = model(images)
+            concept_predictions, class_predictions, _ = model(images)
 
             #Calculating Loss
             loss1, loss2, loss3 = loss_fn(concept_predictions, class_predictions, class_labels, concept_labels, use_concept_labels)
@@ -222,7 +219,7 @@ def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, 
                             partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
                             explain_concept)
 
-    for label, class_name in enumerate(constants.RIVAL10_features._ALL_CLASSNAMES):
+    for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
         args.logger.info(f"{class_name}:")
         for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
             args.logger.info(f" - {name}: {iou:.4f}")
@@ -251,20 +248,20 @@ def main(args:argparse.Namespace):
         args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
         return
     
-    if args.cross_entropy_regular:
-        # explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
-        #                                             args.explain_method)(forward_func=model.encode_as_concepts,
-        #                                                                 model = model)
-        explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
-                                            args.explain_method)(forward_func=model.direct_encode_as_concepts,
-                                                                model = model)
-        explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
-        regular_loss_func = cross_entropy_concept_loss(model = model,
-                                                        explain_forward = partial(explain_algorithm_forward, 
-                                                        explain_algorithm=explain_algorithm),
-                                                        feature_range = (0.0, 1.0),
-                                                        scale = args.loss4_scale,
-                                                        K = int(args.k * dataset_constants.image_size[-1] * dataset_constants.image_size[-2]))
+    # if args.cross_entropy_regular:
+    #     # explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
+    #     #                                             args.explain_method)(forward_func=model.encode_as_concepts,
+    #     #                                                                 model = model)
+    #     explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
+    #                                         args.explain_method)(forward_func=model.direct_encode_as_concepts,
+    #                                                             model = model)
+    #     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
+    #     regular_loss_func = cross_entropy_concept_loss(model = model,
+    #                                                     explain_forward = partial(explain_algorithm_forward, 
+    #                                                     explain_algorithm=explain_algorithm),
+    #                                                     feature_range = (0.0, 1.0),
+    #                                                     scale = args.loss4_scale,
+    #                                                     K = int(args.k * dataset_constants.image_size[-1] * dataset_constants.image_size[-2]))
 
     for epoch in range(5):
         begin = time.time()

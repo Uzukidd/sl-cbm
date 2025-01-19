@@ -101,12 +101,6 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, regular_loss_f
         images = images.squeeze().to(device)
         class_labels = class_labels.squeeze().to(device)
         concept_labels = concept_labels.squeeze().to(device)
-        # use_concept_labels = use_concept_labels.squeeze().to(device)
-
-        # stack the labels along batch dimension (no longer need to be in pairs)
-        # class_labels = torch.reshape(class_labels, (class_labels.shape[0]*2,1)).squeeze()
-        # concept_labels = torch.reshape(concept_labels, (concept_labels.shape[0]*2,18))
-        # use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
 
         #Reseting Gradients
         optimizer.zero_grad()
@@ -144,11 +138,6 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, regular_loss_f
 
 
 def val_one_epoch(val_data_loader, model, loss_fn, device):
-    
-    ### Local Parameters
-    contrastive_loss = []
-    classifier_loss = []
-    concept_loss = []
 
     sum_correct_pred = 0
     total_samples = 0
@@ -196,7 +185,7 @@ def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, 
                             partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
                             explain_concept)
 
-    for label, class_name in enumerate(constants.RIVAL10_features._ALL_CLASSNAMES):
+    for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
         args.logger.info(f"{class_name}:")
         for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
             args.logger.info(f" - {name}: {iou:.4f}")
@@ -219,7 +208,8 @@ def main(args:argparse.Namespace):
     args.logger.info("\n\n\n\t Model Loaded")
     args.logger.info("\t Total Params = %d",sum(p.numel() for p in model.parameters()))
     args.logger.info("\t Trainable Params = %d",sum(p.numel() for p in model.parameters() if p.requires_grad))
-
+    # print({name:p.numel() for  name, p in model.named_parameters() if p.requires_grad})
+    # import pdb; pdb.set_trace()
     if args.evaluate:
         val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, loss_func, args.device)
         args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))

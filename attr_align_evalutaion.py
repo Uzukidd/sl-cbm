@@ -11,6 +11,8 @@ import torch.nn as nn
 from torchvision import datasets
 import torchvision.transforms as transforms
 
+from rival10.constants import RIVAL10_constants
+
 from pcbm.learn_concepts_multimodal import *
 
 from utils import *
@@ -39,53 +41,6 @@ def config():
 
     return parser.parse_args()
 
-def select_act_topK_image(args, model:nn.Module, data_loader:DataLoader, num_classes:int=10, K:int=10):
-    classwise_topK_image = [[(-np.inf, None) for j in range(K)] for i in range(num_classes)]
-    classwise_attr_label = [None for i in range(K)]
-    classwise_attr_mask = [None for i in range(K)]
-
-    for idx, data in enumerate(tqdm(data_loader)):
-        with torch.no_grad():
-            image:torch.Tensor =  data["img"].to(args.device)
-            attr_labels:torch.Tensor = data["attr_labels"].to(args.device)
-            attr_masks:torch.Tensor = data["attr_masks"][:, :-1, 0:1, :, :].to(args.device)
-            class_label:torch.Tensor = data["og_class_label"].to(args.device)
-
-            logit:torch.Tensor = model(image)
-            logit = logit[torch.arange(0, logit.size(0)).long().to(args.device), class_label]
-
-            for ind_mask in range(image.size(0)):
-                heapq.heappushpop(classwise_topK_image[class_label[ind_mask].item()],
-                                  (logit[ind_mask].item(), idx, 
-                                   (image[ind_mask].detach().cpu(), 
-                                    attr_labels[ind_mask].detach().cpu(), 
-                                    attr_masks[ind_mask].detach().cpu())))
-
-    classwise_attr_label = [[x[2][1] for x in classwise_topK_image[i]] for i in range(num_classes)]
-    classwise_attr_mask = [[x[2][2] for x in classwise_topK_image[i]] for i in range(num_classes)]
-    classwise_topK_image = [[x[2][0] for x in classwise_topK_image[i]] for i in range(num_classes)]
-    
-    return classwise_topK_image, classwise_attr_label, classwise_attr_mask
-
-
-
-class get_concept_net_func:
-    
-    @staticmethod
-    def clip_classifier(args, model_context:model_pipeline):
-        return model_context.backbone
-    
-    @staticmethod
-    def open_clip(args, model_context:model_pipeline):
-        posthoc_concept_net = PCBM_Net(model_context=model_context)
-        posthoc_concept_net.output_type("concepts")
-        return posthoc_concept_net
-
-    @staticmethod
-    def clip(args, model_context:model_pipeline):
-        posthoc_concept_net = PCBM_Net(model_context=model_context)
-        posthoc_concept_net.output_type("concepts")
-        return posthoc_concept_net
 
 class select_concept_func:
     
@@ -266,15 +221,19 @@ def main(args):
                                                                                                   dataset,
                                                                                                   explain_algorithm,
                                                                                                   explain_algorithm_forward,)
-    
+    val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, args.device)
+    args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
+
     # Start Rival attrbution alignment evaluation
     attrwise_iou = interpret_all_concept(args, model,
                             dataset.test_loader, 
                             partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
                             explain_concept)
+    
+    
 
     torch.save(attrwise_iou.detach().cpu(), os.path.join(args.save_path, "iou_info.pt"))
-    for label, class_name in enumerate(constants.RIVAL10_features._ALL_CLASSNAMES):
+    for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
         args.logger.info(f"{class_name}:")
         for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
             args.logger.info(f" - {name}: {iou:.4f}")

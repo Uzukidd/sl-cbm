@@ -145,13 +145,13 @@ class CBM_Net(ABC, nn.Module):
                            batch_X:torch.Tensor) -> torch.Tensor:
         pass
     
+    # @abstractmethod
     # intput -> embedding
     def encode_as_embedding(self, 
                             batch_X:torch.Tensor) -> torch.Tensor:
-        backbone = self.get_embedding_encoder()
-        return backbone(batch_X)
+        raise NotImplementedError
     
-    # intput -> batch logit
+    # input -> concept logit, class logit, patch concepts (Optional)
     def forward(self, 
                 batch_X:torch.Tensor) -> torch.Tensor:
         pcbm = self.get_pcbm_pipeline()
@@ -176,84 +176,80 @@ class CBM_Net(ABC, nn.Module):
         pass
 
 
-class PCBM_Net(CBM_Net):
-    def __init__(self, model_context:model_pipeline):
-        super().__init__(model_context = model_context)
-        self.normalizer = model_context.normalizer
-        self.backbone = model_context.backbone
-        self.posthoc_layer = model_context.posthoc_layer
+# class PCBM_Net(CBM_Net):
+#     def __init__(self, model_context:model_pipeline):
+#         super().__init__(model_context = model_context)
+#         self.normalizer = model_context.normalizer
+#         self.backbone = model_context.backbone
+#         self.posthoc_layer = model_context.posthoc_layer
         
-    def forward(self, 
-                input_x:torch.Tensor):
-        assert (int(self.output_class) + int(self.output_logit) + int(self.output_embedding)) <= 1
-        batch_X_normalized = self.normalizer(input_x)
-        embeddings = self.backbone.encode_image(batch_X_normalized)
+#     def forward(self, 
+#                 input_x:torch.Tensor):
+#         assert (int(self.output_class) + int(self.output_logit) + int(self.output_embedding)) <= 1
+#         batch_X_normalized = self.normalizer(input_x)
+#         embeddings = self.backbone.encode_image(batch_X_normalized)
         
-        if self.output_embedding:
-            return embeddings
+#         concept_projs = self.posthoc_layer.compute_dist(embeddings)
+#         class_logit = self.posthoc_layer.forward_projs(concept_projs)
         
-        concept_projs = self.posthoc_layer.compute_dist(embeddings)
-        
-        if self.output_class:
-            return self.posthoc_layer.forward_projs(concept_projs).argmax(1)
+#         if self.output_class:
+#             return self.posthoc_layer.forward_projs(concept_projs).argmax(1)
        
-        if self.output_logit:
-            return self.posthoc_layer.forward_projs(concept_projs)
+#         if self.output_logit:
+#             return self.posthoc_layer.forward_projs(concept_projs)
+
+        
+    
+#     def get_normalizer(self) -> Union[nn.Module, transforms.Compose]:
+#         return self.normalizer
+    
+#     def get_embedding_encoder(self) -> nn.Module:
+#         return Tranforms_Wrapper(self.normalizer, self.backbone)
+
+#     def get_cocnept_encoder(self) -> nn.Module:
+#         return Tranforms_Wrapper(self.normalizer, nn.Sequential(
+#             self.backbone,
+#             self.posthoc_layer.CAV_layer
+#         ))
+
+#     def get_pcbm_pipeline(self) -> nn.Module:
+#         return self
+    
+#     def embed(self, 
+#               input_x:torch.Tensor) -> torch.Tensor:
+#         batch_X_normalized = self.normalizer(input_x)
+#         embeddings = self.backbone.encode_image(batch_X_normalized)
+        
+#         return embeddings
+    
+#     def comput_dist(self,
+#                     embeddings:torch.Tensor) -> torch.Tensor:
+#         concept_projs = self.posthoc_layer.compute_dist(embeddings)
+        
+#         return concept_projs
+    
+#     def forward_projs(self,
+#                       concept_projs:torch.Tensor) -> torch.Tensor:
+#         return self.posthoc_layer.forward_projs(concept_projs)
+    
+#     def output_as_logit(self, 
+#                         input_x:torch.Tensor) -> torch.Tensor:
+#         batch_X_normalized = self.normalizer(input_x)
+#         embeddings = self.backbone.encode_image(batch_X_normalized)
+#         concept_projs = self.posthoc_layer.compute_dist(embeddings)
+
+#         return self.posthoc_layer.forward_projs(concept_projs)
+    
+#     def output_as_class(self, 
+#                         input_x:torch.Tensor) -> torch.Tensor:
+#         batch_X_normalized = self.normalizer(input_x)
+#         embeddings = self.backbone.encode_image(batch_X_normalized)
+#         concept_projs = self.posthoc_layer.compute_dist(embeddings)
+
+#         return self.posthoc_layer.forward_projs(concept_projs).argmax(1)
        
-        if self.output_concepts:
-            return concept_projs
-        
-    
-    def get_normalizer(self) -> Union[nn.Module, transforms.Compose]:
-        return self.normalizer
-    
-    def get_embedding_encoder(self) -> nn.Module:
-        return Tranforms_Wrapper(self.normalizer, self.backbone)
-
-    def get_cocnept_encoder(self) -> nn.Module:
-        return Tranforms_Wrapper(self.normalizer, nn.Sequential(
-            self.backbone,
-            self.posthoc_layer.CAV_layer
-        ))
-
-    def get_pcbm_pipeline(self) -> nn.Module:
-        return self
-    
-    def embed(self, 
-              input_x:torch.Tensor) -> torch.Tensor:
-        batch_X_normalized = self.normalizer(input_x)
-        embeddings = self.backbone.encode_image(batch_X_normalized)
-        
-        return embeddings
-    
-    def comput_dist(self,
-                    embeddings:torch.Tensor) -> torch.Tensor:
-        concept_projs = self.posthoc_layer.compute_dist(embeddings)
-        
-        return concept_projs
-    
-    def forward_projs(self,
-                      concept_projs:torch.Tensor) -> torch.Tensor:
-        return self.posthoc_layer.forward_projs(concept_projs)
-    
-    def output_as_logit(self, 
-                        input_x:torch.Tensor) -> torch.Tensor:
-        batch_X_normalized = self.normalizer(input_x)
-        embeddings = self.backbone.encode_image(batch_X_normalized)
-        concept_projs = self.posthoc_layer.compute_dist(embeddings)
-
-        return self.posthoc_layer.forward_projs(concept_projs)
-    
-    def output_as_class(self, 
-                        input_x:torch.Tensor) -> torch.Tensor:
-        batch_X_normalized = self.normalizer(input_x)
-        embeddings = self.backbone.encode_image(batch_X_normalized)
-        concept_projs = self.posthoc_layer.compute_dist(embeddings)
-
-        return self.posthoc_layer.forward_projs(concept_projs).argmax(1)
-       
-    def get_backbone(self):
-        return self.backbone
+#     def get_backbone(self):
+#         return self.backbone
 
 # CLIP VL-CBM
 class clip_cbm(CBM_Net):
@@ -303,24 +299,24 @@ class clip_cbm(CBM_Net):
     
     def forward(self, 
                 batch_X:torch.Tensor) -> torch.Tensor:
+        concept_activations = self.encode_as_concepts(batch_X)
+
+        return self.classifier(concept_activations), concept_activations, None
+
+    def encode_as_embedding(self, 
+                        batch_X:torch.Tensor) -> torch.Tensor:
         B, C, H, W = batch_X.size()
         
         if self.normalizer is not None:
             batch_X = self.normalizer(batch_X)
 
         visual_projection = self.backbone.encode_image(batch_X)
-        concept_activations = self.CAV_layer(visual_projection)
 
-        return self.classifier(concept_activations)
+        return visual_projection
     
     def encode_as_concepts(self, 
                            batch_X:torch.Tensor) -> torch.Tensor:
-        B, C, H, W = batch_X.size()
-        
-        if self.normalizer is not None:
-            batch_X = self.normalizer(batch_X)
-
-        visual_projection = self.backbone.encode_image(batch_X)
+        visual_projection = self.encode_as_embedding(batch_X)
         concept_activations = self.CAV_layer(visual_projection)
 
         return concept_activations
@@ -418,7 +414,7 @@ class css_pcbm(CBM_Net):
                                                          dim=-1))
         concepts = concept_activations + concept_projections
         #     (bs*2,18)         (bs*2,10)
-        return F.sigmoid(concepts), self.classifier(concepts)
+        return self.classifier(concepts), F.sigmoid(concepts), None
     
     def direct_encode_as_concepts(self, 
                            batch_X:torch.Tensor) -> torch.Tensor:
@@ -610,8 +606,10 @@ class spss_pcbm(CBM_Net):
         else:
             images = input_X
         pooled_tokens, token_concepts = self.encode_as_concepts(images, return_token_concepts=True)
+        if torch.any(torch.isnan(pooled_tokens)):
+            import pdb; pdb.set_trace()
         #     (bs*2,C)         (bs*2,Class)
-        return pooled_tokens, self.classifier(pooled_tokens), token_concepts
+        return self.classifier(pooled_tokens), pooled_tokens, token_concepts
     
     def encode_as_concepts(self, 
                            batch_X:torch.Tensor,
@@ -629,7 +627,7 @@ class spss_pcbm(CBM_Net):
         pooled_cavs = self.cavs.mean(1).unsqueeze(0).unsqueeze(0).expand((B, -1, -1)) # [C, D]-> [B, 1, C]
 
         pooled_tokens = self.simpool(token_concepts, pooled_cavs) # [B, C]
-        # import pdb; pdb.set_trace()
+
         if return_token_concepts:
             return pooled_tokens, token_concepts
         return pooled_tokens
@@ -648,28 +646,18 @@ class spss_pcbm(CBM_Net):
         # [C] [B, grid * grid, C]
         _, token_concepts = self.encode_as_concepts(batch_X, return_token_concepts=True)
         B, N, C = token_concepts.size()
-        # token_concepts = F.softmax(token_concepts, dim=2)
+
         if isinstance(target, torch.Tensor):
-            # [B, grid * grid, C]
-            expanded_target = target.unsqueeze(1).unsqueeze(1).expand(-1, N, -1) # [B, N]
-            attribution = token_concepts.gather(dim=2, index=expanded_target)# [B, grid * grid, 1]
+            # [B, grid * grid, 1]
+            expanded_target = target.unsqueeze(1).unsqueeze(1).expand(-1, N, -1) # [B, N, 1]
+            attribution = token_concepts.gather(dim=2, index=expanded_target) # [B, grid * grid, 1]
         else:
             # [1, grid * grid, C]
             attribution = token_concepts[:, :, target:target+1] # [1, grid * grid, 1]
         
         # [B, grid * grid, 1] -> # [B, 1, grid, grid]
         _grid = int(np.round(np.sqrt(N)))
-        
         attribution = attribution.permute((0, 2, 1)).view(B, 1, _grid, _grid)
-            
-        
-        # B, F = self.gradients.size(0), self.gradients.size(2)
-        
-        # importance_weights = self.gradients.mean(dim=(1)) # [B, F]
-        
-        # weighted_activations = importance_weights[:, None, :] * self.activations # [B, grid ** 2, F]
-        # weighted_activations = weighted_activations.permute(0, 2, 1) # [B, F, grid ** 2]
-        # _grid = int(np.round(np.sqrt(weighted_activations.size(2))))
 
         return attribution
 

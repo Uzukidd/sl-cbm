@@ -27,9 +27,12 @@ from pcbm.concepts import ConceptBank
 from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
 from pcbm.training_tools import load_or_compute_projections
 
-from .constants import dataset_constants, RIVAL10_features
+import rival10
+from rival10 import LocalRIVAL10, constants
+from .constants import dataset_constants
 from .model_utils import *
 
+rival10.constants.RIVAL10_constants.set_rival10_dir(dataset_constants.RIVAL10_DIR)
 
 def set_random_seed(seed):
     random.seed(seed)
@@ -158,11 +161,10 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
         classes = list(class_to_idx.keys())
 
     elif args.dataset == "rival10":
-        from utils import LocalRIVAL10
-        trainset = LocalRIVAL10(train=True, classification_output=True, masks_dict=False, transform=preprocess)
-        testset = LocalRIVAL10(train=False, classification_output=True, masks_dict=False, transform=preprocess)
+        trainset = LocalRIVAL10(train=True, cherrypick_list = ["img", "og_class_label"], masks_dict=False, transform=preprocess)
+        testset = LocalRIVAL10(train=False, cherrypick_list = ["img", "og_class_label"], masks_dict=False, transform=preprocess)
 
-        class_to_idx = {c: i for (i,c) in enumerate(RIVAL10_features._ALL_CLASSNAMES)}
+        class_to_idx = {c: i for (i,c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)}
         idx_to_class = {v: k for k, v in class_to_idx.items()}
         train_loader = DataLoader(trainset, batch_size=args.batch_size,
                                     shuffle=False, num_workers=args.num_workers)
@@ -170,11 +172,10 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
                                     shuffle=False, num_workers=args.num_workers)
         
     elif args.dataset == "rival10_full":
-        from utils import LocalRIVAL10
-        trainset = LocalRIVAL10(train=True, classification_output=False, masks_dict=True, transform=preprocess)
-        testset = LocalRIVAL10(train=False, classification_output=False, masks_dict=True, transform=preprocess)
+        trainset = LocalRIVAL10(train=True, cherrypick_list = None, masks_dict=True, transform=preprocess)
+        testset = LocalRIVAL10(train=False, cherrypick_list = None, masks_dict=True, transform=preprocess)
 
-        class_to_idx = {c: i for (i,c) in enumerate(RIVAL10_features._ALL_CLASSNAMES)}
+        class_to_idx = {c: i for (i,c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)}
         idx_to_class = {v: k for k, v in class_to_idx.items()}
         train_loader = DataLoader(trainset, batch_size=args.batch_size,
                                     shuffle=False, num_workers=args.num_workers)
@@ -182,11 +183,10 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
                                     shuffle=False, num_workers=args.num_workers)
     
     elif args.dataset == "spss_rival10":
-        from utils import LocalRIVAL10
-        trainset = LocalRIVAL10(train=True, classification_output=False, spss_output=True, masks_dict=False, transform=preprocess)
-        testset = LocalRIVAL10(train=False, classification_output=False, spss_output=True, masks_dict=False, transform=preprocess)
+        trainset = LocalRIVAL10(train=True, cherrypick_list = ["img", "og_class_label", "attr_labels"], masks_dict=False, transform=preprocess)
+        testset = LocalRIVAL10(train=False, cherrypick_list = ["img", "og_class_label", "attr_labels"], masks_dict=False, transform=preprocess)
 
-        class_to_idx = {c: i for (i,c) in enumerate(RIVAL10_features._ALL_CLASSNAMES)}
+        class_to_idx = {c: i for (i,c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)}
         idx_to_class = {v: k for k, v in class_to_idx.items()}
         train_loader = DataLoader(trainset, batch_size=args.batch_size,
                                     shuffle=False, num_workers=args.num_workers)
@@ -202,7 +202,7 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
                                          percentage_of_concept_labels_for_training=0.0, 
                                          transform=preprocess)
 
-        class_to_idx = {c: i for (i,c) in enumerate(RIVAL10_features._ALL_CLASSNAMES)}
+        class_to_idx = {c: i for (i,c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)}
         idx_to_class = {v: k for k, v in class_to_idx.items()}
         train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=16)
         test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=16)
@@ -445,17 +445,6 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
     
     return model 
 
-def model_forward_wrapper(model_context:model_pipeline,):
-    def model_forward(batch_X:torch.Tensor,
-                      model_context:model_pipeline,):
-        batch_X_normalized = model_context.normalizer(batch_X)
-        embeddings = model_context.backbone.encode_image(batch_X_normalized)
-        concept_projs = model_context.posthoc_layer.compute_dist(embeddings)
-        
-        return concept_projs
-    
-    return partial(model_forward, model_context = model_context)
-
 def load_model_pipeline(args:argparse.Namespace):
     concept_bank = load_concept_bank(args)
     backbone = load_backbone(args)
@@ -485,39 +474,6 @@ def create_logger(log_file=None, rank=0, log_level=logging.INFO):
         logger.addHandler(file_handler)
     logger.propagate = False
     return logger
-
-def topK_concept_to_name(args, pcbm_net:CBM_Net,
-                         batch_X:torch.Tensor,
-                         K = 5):
-    # from model_utils import PCBM_Net
-    projs = pcbm_net.encode_as_concepts(batch_X)
-    topk_values, topk_indices = torch.topk(projs, K, dim=1)
-    predicted_Y = pcbm_net.forward_projs(projs).argmax(1)
-
-    # topk_concept = [{pcbm_net.CAV_layer.names[idx]:round(float(val), 2) for idx, val in zip(irow, vrow)} for irow, vrow in zip(topk_indices, topk_values)]
-    # classification_res = [f"{pcbm_net.idx_to_class[Y.item()]}" for Y in predicted_Y]
-    # print(f"top (K = {K}) concepts: {json.dumps(topk_concept, indent=4)}")
-    # print(f"classification result: {json.dumps(classification_res, indent=4)}")
-
-
-def get_topK_concept_logit(args, batch_X:torch.Tensor,  
-                            batch_Y:torch.Tensor,
-                            model_context:model_pipeline,
-                            K:int = 5,):
-    
-    batch_X_normalized = model_context.normalizer(batch_X)
-    embeddings = model_context.backbone.encode_image(batch_X_normalized)
-    projs = model_context.posthoc_layer.compute_dist(embeddings)
-    predicted_Y = model_context.posthoc_layer.forward_projs(projs)
-    accuracy = (predicted_Y.argmax(1) == batch_Y).float().mean().item()
-    
-    topk_values, topk_indices = torch.topk(projs, K, dim=1)
-    topk_concept = [{model_context.posthoc_layer.names[idx]:round(float(val), 2) for idx, val in zip(irow, vrow)} for irow, vrow in zip(topk_indices, topk_values)]
-    classification_res = [f"{model_context.posthoc_layer.idx_to_class[Y.item()]} -> {model_context.posthoc_layer.idx_to_class[Y_hat.item()]}" for Y, Y_hat in zip(batch_Y, predicted_Y.argmax(1))]
-    print(f"top (K = {K}) concepts: {json.dumps(topk_concept, indent=4)}")
-    print(f"classification result: {json.dumps(classification_res, indent=4)}")
-    print(f"accuracy: {accuracy}")
-
 
 def evaluzate_accuracy(args, batch_X:torch.Tensor, 
                             batch_Y:torch.Tensor,
