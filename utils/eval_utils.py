@@ -9,6 +9,8 @@ from rival10.constants import RIVAL10_constants
 from .model_utils import *
 from .visual_utils import *
 from .constants import *
+from .explain_utils import *
+from .common_utils import *
 from typing import Callable
 
 eps=1e-10
@@ -41,10 +43,13 @@ def attribution_iou(batch_attribution:torch.Tensor, batch_attr_mask:torch.Tensor
     intersection = torch.sum(intersection, dim=(1, 2, 3))
 
     union = torch.sum((binarized_batch_attribution + binarized_batch_attr_mask) > 0, dim=(1, 2, 3))
+    attribution_area = torch.sum(binarized_batch_attribution > 0, dim=(1, 2, 3))
 
     dice = (2 * intersection + eps) / (union + intersection + eps)
     iou = (intersection + eps) / (union + eps)
-    return iou.detach(), dice.detach()
+    prec_iou = (intersection + eps) / (attribution_area + eps)
+
+    return iou.detach(), dice.detach(), prec_iou.detach()
     
 def __vis_ind_image(ind_X:torch.Tensor, 
                 batch_attribution:torch.Tensor,
@@ -95,10 +100,13 @@ def interpret_all_concept(args,
                         data_loader:DataLoader,
                         explain_algorithm_forward:Callable,
                         explain_concept:torch.Tensor):
-
-    attrwise_best_iou = [None for i in range(10)]
-    attrwise_iou = [None for i in range(10)]
-    attrwise_amount = [None for i in range(10)]
+    attrwise_metric = { }
+    for metric in ["iou", "dice", "prec_iou"]:
+        attrwise_metric[metric] = {
+            "best": [None for i in range(10)],
+            "val": [None for i in range(10)],
+            "amount": [None for i in range(10)],
+        }
     
     save_to = os.path.join(args.save_path, "images")
 
@@ -124,8 +132,8 @@ def interpret_all_concept(args,
                 batch_X = ind_X,
                 target = explain_concept
             )
-            
-            iou, dice =  attribution_iou(attribution.sum(dim=1, keepdim=True), ind_attr_masks, ind_X=ind_X)
+            res_dict = {}
+            res_dict["iou"], res_dict["dice"], res_dict["prec_iou"] =  attribution_iou(attribution.sum(dim=1, keepdim=True), ind_attr_masks, ind_X=ind_X)
             
             if idx < 15:
                 save_key_image(ind_class_name, 
@@ -134,28 +142,34 @@ def interpret_all_concept(args,
                             ind_attr_masks,
                             f"{idx}:{batch_mask}",
                             save_to)
-          
-            if attrwise_iou[ind_class_label] is None:
-                attrwise_iou[ind_class_label] = image.new_zeros(K)
-                attrwise_amount[ind_class_label] = image.new_zeros(K)
-                attrwise_best_iou[ind_class_label] = image.new_zeros(K)
+                            
+            for metric in ["iou", "dice", "prec_iou"]:
+                attrwise_metric[metric]
+                if attrwise_metric[metric]["val"][ind_class_label] is None:
+                    attrwise_metric[metric]["val"][ind_class_label] = image.new_zeros(K)
+                    attrwise_metric[metric]["amount"][ind_class_label] = image.new_zeros(K)
+                    attrwise_metric[metric]["best"][ind_class_label] = image.new_zeros(K)
             
-            attrwise_amount[ind_class_label] += ind_attr_labels
-            attrwise_iou[ind_class_label] += iou * ind_attr_labels
+                attrwise_metric[metric]["amount"][ind_class_label] += ind_attr_labels
+                attrwise_metric[metric]["val"][ind_class_label] += res_dict[metric] * ind_attr_labels
+
+                attrwise_metric[metric]["best"][ind_class_label] = torch.max(attrwise_metric[metric]["best"][ind_class_label], 
+                                                           res_dict[metric])
             
             save_best_image(ind_class_name, 
                             ind_X,
                             attribution.sum(dim=1, keepdim=True),
                             ind_attr_masks,
-                            attrwise_best_iou[ind_class_label],
-                            iou * ind_attr_labels,
+                            attrwise_metric["iou"]["best"][ind_class_label],
+                            res_dict["iou"] * ind_attr_labels,
                             save_to)
-            attrwise_best_iou[ind_class_label] = torch.max(attrwise_best_iou[ind_class_label], 
-                                                           iou)
+
             
-            
-    attrwise_iou = torch.stack(attrwise_iou) / torch.stack(attrwise_amount)
-    return attrwise_iou
+    for metric in ["iou", "dice", "prec_iou"]:
+        attrwise_metric[metric]["val"] = torch.stack(attrwise_metric[metric]["val"]) / torch.stack(attrwise_metric[metric]["amount"])
+    return {
+        metric: attrwise_metric[metric]["val"] for metric in ["iou", "dice", "prec_iou"]
+    }
 
 def estimate_top_concepts_accuracy(concept_predictions, concept_labels):
 
@@ -187,9 +201,12 @@ def val_one_epoch(val_data_loader:DataLoader, model:CBM_Net, device:torch.device
     with torch.no_grad():
         ###Iterating over data loader
         for i, data in enumerate(val_data_loader):
-
+            images, class_labels, concept_labels, use_concept_labels = None, None, None, None
             if isinstance(data, list):
-                images, class_labels, concept_labels = data
+                if data.__len__() == 3:
+                    images, class_labels, concept_labels = data
+                else:
+                    images, class_labels, concept_labels, use_concept_labels = data
             else:
                 images, class_labels, concept_labels = data["img"], data["og_class_label"], data["attr_labels"]
             
@@ -197,6 +214,14 @@ def val_one_epoch(val_data_loader:DataLoader, model:CBM_Net, device:torch.device
             images = images.squeeze().to(device)
             class_labels = class_labels.squeeze().to(device)
             concept_labels = concept_labels.squeeze().to(device)
+            if use_concept_labels is not None:
+                use_concept_labels = use_concept_labels.squeeze().to(device)
+
+            if class_labels.size().__len__() == 2:
+                class_labels = torch.reshape(class_labels,(class_labels.shape[0]*2,1)).squeeze()
+                concept_labels = torch.reshape(concept_labels,(concept_labels.shape[0]*2,18))
+                if use_concept_labels is not None:
+                    use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
 
             #Forward
             class_predictions, concept_predictions , _ = model(images)
@@ -211,3 +236,32 @@ def val_one_epoch(val_data_loader:DataLoader, model:CBM_Net, device:torch.device
     acc = round(sum_correct_pred/total_samples,4)*100
     total_concept_acc = round(concept_acc/concept_count,4)*100
     return acc, total_concept_acc
+
+
+def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, concept_bank:ConceptBank, explain_method:str):
+
+    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
+                                                    explain_method)(forward_func=model.encode_as_concepts,
+                                                                        model = model)
+    explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, explain_method)
+    # attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
+    explain_concept:torch.Tensor = torch.arange(0, concept_bank.concept_info.concept_names.__len__()).to(args.device)
+    
+    # Start Rival attrbution alignment evaluation
+    res_dict = interpret_all_concept(args, model,
+                            dataset.test_loader, 
+                            partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
+                            explain_concept)
+    
+    for metric in ["iou", "dice", "prec_iou"]:
+        attrwise_metric = res_dict[metric]
+        torch.save(attrwise_metric.detach().cpu(), os.path.join(args.save_path, f"{metric}_info.pt"))
+        args.logger.info(f"--------{metric}\n\n")
+        for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
+            args.logger.info(f"{class_name}:")
+            for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_metric[label]):
+                args.logger.info(f" - {name}: {iou:.4f}")
+
+        args.logger.info(f"totall ({attrwise_metric.nanmean():.4f}):")
+        for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
+            args.logger.info(f" - {concepts_name}: {attrwise_metric[:, ind].nanmean():.4f}")

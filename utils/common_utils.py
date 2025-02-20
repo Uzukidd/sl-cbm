@@ -426,6 +426,7 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
         model = spss_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
                         model_context.backbone,
+                        False,
                         num_of_classes)
         if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
             model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
@@ -462,7 +463,7 @@ def load_model_pipeline(args:argparse.Namespace):
 def create_logger(log_file=None, rank=0, log_level=logging.INFO):
     logger = logging.getLogger(__name__)
     logger.setLevel(log_level if rank == 0 else 'ERROR')
-    formatter = logging.Formatter('%(asctime)s  %(levelname)5s  %(message)s')
+    formatter = logging.Formatter('%(message)s')
     console = logging.StreamHandler()
     console.setLevel(log_level if rank == 0 else 'ERROR')
     console.setFormatter(formatter)

@@ -225,22 +225,23 @@ def main(args):
     args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
 
     # Start Rival attrbution alignment evaluation
-    attrwise_iou = interpret_all_concept(args, model,
+    res_dict = interpret_all_concept(args, model,
                             dataset.test_loader, 
                             partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
                             explain_concept)
     
-    
+    for metric in ["iou", "dice", "prec_iou"]:
+        attrwise_metric = res_dict[metric]
+        torch.save(attrwise_metric.detach().cpu(), os.path.join(args.save_path, f"{metric}_info.pt"))
+        args.logger.info(f"--------{metric}\n\n")
+        for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
+            args.logger.info(f"{class_name}:")
+            for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_metric[label]):
+                args.logger.info(f" - {name}: {iou:.4f}")
 
-    torch.save(attrwise_iou.detach().cpu(), os.path.join(args.save_path, "iou_info.pt"))
-    for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
-        args.logger.info(f"{class_name}:")
-        for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
-            args.logger.info(f" - {name}: {iou:.4f}")
-
-    args.logger.info(f"totall ({attrwise_iou.nanmean():.4f}):")
-    for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
-        args.logger.info(f" - {concepts_name}: {attrwise_iou[:, ind].nanmean():.4f}")
+        args.logger.info(f"totall ({attrwise_metric.nanmean():.4f}):")
+        for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
+            args.logger.info(f" - {concepts_name}: {attrwise_metric[:, ind].nanmean():.4f}")
 
 if __name__ == "__main__":
     args = config()

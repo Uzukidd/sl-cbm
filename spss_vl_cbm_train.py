@@ -48,9 +48,12 @@ def config():
     parser.add_argument("--batch-size", default=8, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
     
+    parser.add_argument("--loss", default="spss", type=str)
+    parser.add_argument("--use-concept-softmax", action='store_true')
     parser.add_argument("--lambda1", default=1.0, type=float)
     parser.add_argument("--lambda2", default=1.0, type=float)
     parser.add_argument("--lambda3", default=1.0, type=float)
+    parser.add_argument("--lambda4", default=1.0, type=float)
     parser.add_argument("--lr", default=3e-4, type=float)
 
     parser.add_argument("--explain-method", type=str)
@@ -78,12 +81,25 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
     model.train()
 
     ###Iterating over data loader
-    for i, (images, class_labels, concept_labels) in enumerate(train_data_loader):
+    for i, data in enumerate(train_data_loader):
+        images, class_labels, concept_labels, use_concept_labels = None, None, None, None
+        if data.__len__() == 3:
+            images, class_labels, concept_labels = data
+        else:
+            images, class_labels, concept_labels, use_concept_labels = data
         
         #Loading data and labels to device
         images = images.squeeze().to(device)
         class_labels = class_labels.squeeze().to(device)
         concept_labels = concept_labels.squeeze().to(device)
+        if use_concept_labels is not None:
+            use_concept_labels = use_concept_labels.squeeze().to(device)
+
+        if class_labels.size().__len__() == 2:
+            class_labels = torch.reshape(class_labels,(class_labels.shape[0]*2,1)).squeeze()
+            concept_labels = torch.reshape(concept_labels,(concept_labels.shape[0]*2,18))
+            if use_concept_labels is not None:
+                use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
 
         #Reseting Gradients
         optimizer.zero_grad()
@@ -92,19 +108,18 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
         class_predictions, concept_predictions, token_concepts = model(images)
 
         #Calculating Loss
-        loss1, loss2, loss3 = loss_fn(concept_predictions, class_predictions, class_labels, concept_labels, token_concepts)
-        _loss = loss1 + loss2 + loss3
+        loss_pkg = loss_fn(concept_predictions, class_predictions, class_labels, concept_labels, token_concepts)
+        _loss = sum(loss_pkg)
 
-        classifier_loss.append(loss1.item())
-        concept_loss.append(loss2.item())
-        regular_loss.append(loss3.item())
+
+        classifier_loss.append(loss_pkg[0].item())
+        concept_loss.append(loss_pkg[1].item())
+        regular_loss.append(loss_pkg[2].item())
+        if loss_pkg.__len__() == 4:
+            contrastive_loss.append(loss_pkg[3].item())
 
         #Backward
         _loss.backward()
-        for n, p in model.simpool.named_parameters(): 
-            if torch.any(torch.isnan(p.grad)):
-                print(n)
-                import pdb; pdb.set_trace()
         optimizer.step()
 
         if i%200 == 0:
@@ -155,30 +170,6 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
 #     total_concept_acc = round(concept_acc/concept_count,4)*100
 #     return acc, total_concept_acc
 
-def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, concept_bank:ConceptBank):
-
-    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
-                                                    args.explain_method)(forward_func=model.encode_as_concepts,
-                                                                        model = model)
-    explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
-    # attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
-    explain_concept:torch.Tensor = torch.arange(0, concept_bank.concept_info.concept_names.__len__()).to(args.device)
-    
-    # Start Rival attrbution alignment evaluation
-    attrwise_iou = interpret_all_concept(args, model,
-                            dataset.test_loader, 
-                            partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
-                            explain_concept)
-
-    torch.save(attrwise_iou.detach().cpu(), os.path.join(args.save_path, "iou_info.pt"))
-    for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
-        args.logger.info(f"{class_name}:")
-        for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
-            args.logger.info(f" - {name}: {iou:.4f}")
-
-    args.logger.info(f"totall ({attrwise_iou.nanmean():.4f}):")
-    for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
-        args.logger.info(f" - {concepts_name}: {attrwise_iou[:, ind].nanmean():.4f}")
 
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)
@@ -187,9 +178,21 @@ def main(args:argparse.Namespace):
     
     # Prepare training module
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    loss_func = spss_loss(lambda1 = args.lambda1, 
-                          lambda2 = args.lambda2,
-                          lambda3 = args.lambda3)
+    
+    if isinstance(model, spss_pcbm):
+        model.concept_softmax = args.use_concept_softmax
+    
+    if args.loss == "spss":
+        loss_func = spss_loss(lambda1 = args.lambda1, 
+                            lambda2 = args.lambda2,
+                            lambda3 = args.lambda3,
+                            log_sapce = args.use_concept_softmax)
+    elif args.loss == "cspss":
+        loss_func = cspss_loss(lambda1 = args.lambda1, 
+                            lambda2 = args.lambda2,
+                            lambda3 = args.lambda3,
+                            lambda4 = args.lambda4,
+                            log_sapce = args.use_concept_softmax)
     
     # args.logger.info(f"data size: {args.data_size}")
     args.logger.info("\n\n\n\t Model Loaded")

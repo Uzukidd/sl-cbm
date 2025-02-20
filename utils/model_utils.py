@@ -447,9 +447,19 @@ class css_pcbm(CBM_Net):
                       concept_projs:torch.Tensor) -> torch.Tensor:
         return self.classifier(concept_projs)
 
+
 # Modified from https://github.com/billpsomas/simpool/blob/master/sp.py
 # Original author: Bill Psomas
+def show_gradient(grad, parent, name=""):
+    
+    if grad.isnan().any():
+        print(f"{name} is nan")
+        import pdb; pdb.set_trace()
+        
+    return grad
+
 class SimPool(nn.Module):
+    SIMPOOL_DEBUG_FLAG = False
     def __init__(self, dim, num_heads=1, qkv_bias=False, qk_scale=None, gamma=None, use_beta=False):
         super().__init__()
         self.num_heads = num_heads
@@ -490,6 +500,8 @@ class SimPool(nn.Module):
             raise ValueError(f"Unsupported number of dimensions in input tensor: {len(x.shape)}")
 
     def forward(self, x:torch.Tensor, prepared_q:torch.Tensor=None):
+        if self.SIMPOOL_DEBUG_FLAG:
+            import pdb; pdb.set_trace()
         # Prepare input tensor and perform GAP as initialization
         gap_cls, x = self.prepare_input(x)
 
@@ -537,12 +549,12 @@ class spss_pcbm(CBM_Net):
 
     TRAINABLE_COMPONENTS = ["simpool", 
                             "token_projection",
-                           "classifier"]
+                            "classifier"]
 
     def __init__(self, normalizer, 
                  concept_bank:ConceptBank, 
                  backbone:open_clip_model_CLIP,
-                 gamma:float=1.25,
+                 concept_softmax:bool=False,
                  num_of_classes:int=10
                  ):
         super().__init__()
@@ -550,6 +562,7 @@ class spss_pcbm(CBM_Net):
         self.concept_bank = concept_bank
         self.normalizer = normalizer
         self.backbone:open_clip_model_CLIP = backbone
+        self.concept_softmax = concept_softmax
         self.embedding_size = self.backbone.visual.output_dim
 
         assert hasattr(self.backbone.visual, "output_tokens")
@@ -567,7 +580,6 @@ class spss_pcbm(CBM_Net):
                                num_heads=1, 
                                qkv_bias=False, 
                                qk_scale=None, 
-                               gamma=gamma, 
                                use_beta=True)
 
         token_width = self.backbone.visual.proj.size(0)
@@ -606,8 +618,6 @@ class spss_pcbm(CBM_Net):
         else:
             images = input_X
         pooled_tokens, token_concepts = self.encode_as_concepts(images, return_token_concepts=True)
-        if torch.any(torch.isnan(pooled_tokens)):
-            import pdb; pdb.set_trace()
         #     (bs*2,C)         (bs*2,Class)
         return self.classifier(pooled_tokens), pooled_tokens, token_concepts
     
@@ -621,7 +631,9 @@ class spss_pcbm(CBM_Net):
 
         # 1x1 convolution
         token_concepts = self.token_projection(visual_patches) # [B, W * H, D] -> [B, W * H, C]
-        # token_concepts = F.softmax(token_concepts, dim=2)
+
+        if self.concept_softmax:
+            token_concepts = F.softmax(token_concepts, dim=2)
 
         # prepare cavs as query
         pooled_cavs = self.cavs.mean(1).unsqueeze(0).unsqueeze(0).expand((B, -1, -1)) # [C, D]-> [B, 1, C]
@@ -637,7 +649,7 @@ class spss_pcbm(CBM_Net):
                   target:Union[torch.Tensor|int], 
                   additional_args:dict={}) -> torch.Tensor:
         """
-            Args:
+            Args: 
                 batch_X: [B, C, W, H]
                 target: int/[B, 1]
             Return:

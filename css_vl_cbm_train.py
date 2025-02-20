@@ -101,9 +101,10 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, regular_loss_f
         use_concept_labels = use_concept_labels.squeeze().to(device)
 
         # stack the labels along batch dimension (no longer need to be in pairs)
-        class_labels = torch.reshape(class_labels,(class_labels.shape[0]*2,1)).squeeze()
-        concept_labels = torch.reshape(concept_labels,(concept_labels.shape[0]*2,18))
-        use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
+        if class_labels.size().__len__() == 2:
+            class_labels = torch.reshape(class_labels,(class_labels.shape[0]*2,1)).squeeze()
+            concept_labels = torch.reshape(concept_labels,(concept_labels.shape[0]*2,18))
+            use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
 
         #Reseting Gradients
         optimizer.zero_grad()
@@ -117,7 +118,7 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, regular_loss_f
         optimizer.zero_grad()
 
         #Forward
-        concept_predictions, class_predictions, _ = model(images)
+        class_predictions, concept_predictions, _ = model(images)
 
         #Calculating Loss
         loss1, loss2, loss3 = loss_fn(concept_predictions, class_predictions, class_labels, concept_labels, use_concept_labels)
@@ -184,7 +185,7 @@ def val_one_epoch(val_data_loader, model, loss_fn, device):
             use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
 
             #Forward
-            concept_predictions, class_predictions, _ = model(images)
+            class_predictions, concept_predictions, _ = model(images)
 
             #Calculating Loss
             loss1, loss2, loss3 = loss_fn(concept_predictions, class_predictions, class_labels, concept_labels, use_concept_labels)
@@ -214,19 +215,23 @@ def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, 
     explain_concept:torch.Tensor = torch.arange(0, concept_bank.concept_info.concept_names.__len__()).to(args.device)
     
     # Start Rival attrbution alignment evaluation
-    attrwise_iou = interpret_all_concept(args, model,
+    res_dict = interpret_all_concept(args, model,
                             dataset.test_loader, 
                             partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
                             explain_concept)
 
-    for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
-        args.logger.info(f"{class_name}:")
-        for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_iou[label]):
-            args.logger.info(f" - {name}: {iou:.4f}")
+    for metric in ["iou", "dice", "prec_iou"]:
+        attrwise_metric = res_dict[metric]
+        torch.save(attrwise_metric.detach().cpu(), os.path.join(args.save_path, f"{metric}_info.pt"))
+        args.logger.info(f"--------{metric}\n\n")
+        for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
+            args.logger.info(f"{class_name}:")
+            for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_metric[label]):
+                args.logger.info(f" - {name}: {iou:.4f}")
 
-    args.logger.info(f"totall ({attrwise_iou.nanmean():.4f}):")
-    for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
-        args.logger.info(f" - {concepts_name}: {attrwise_iou[:, ind].nanmean():.4f}")
+        args.logger.info(f"totall ({attrwise_metric.nanmean():.4f}):")
+        for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
+            args.logger.info(f" - {concepts_name}: {attrwise_metric[:, ind].nanmean():.4f}")
 
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)

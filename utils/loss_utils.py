@@ -95,7 +95,10 @@ class trinity_loss(nn.Module):
         return contrasive_loss, classification_loss, concept_loss
 
 class spss_loss(nn.Module):
-    def __init__(self, lambda1:float, lambda2:float, lambda3:float):
+    def __init__(self, lambda1:float, 
+                 lambda2:float, 
+                 lambda3:float,
+                 log_sapce:bool):
         super().__init__()
         self.ce_loss = nn.CrossEntropyLoss()
         self.l1_loss = nn.L1Loss()
@@ -105,26 +108,70 @@ class spss_loss(nn.Module):
         self.lambda1 = lambda1
         self.lambda2 = lambda2
         self.lambda3 = lambda3
+        self.log_sapce = log_sapce
 
     def forward(self, predicted_concepts:torch.Tensor, 
                 class_logits:torch.Tensor, 
                 class_label:torch.Tensor, 
                 concept_label:torch.Tensor, 
                 token_concepts:torch.Tensor):
+
         classification_loss = self.ce_loss(class_logits, class_label)
 
         normalized_predicted_concepts = F.sigmoid(predicted_concepts)
 
         concept_loss = self.scale * self.l1_loss(normalized_predicted_concepts, concept_label)
-        entropy_loss = self.pe_loss(token_concepts, False)
-
-        # entropy_loss = predicted_concepts.new_zeros(1)
-
+        entropy_loss = self.pe_loss(token_concepts, self.log_sapce)
+        
         if torch.any(torch.isnan(concept_loss)):
             import pdb; pdb.set_trace()
 
+        # entropy_loss = predicted_concepts.new_zeros(1)
+
         # backbone -> concept -> classifier
         return self.lambda1 * classification_loss, self.lambda2 * concept_loss, self.lambda3 * entropy_loss
+    
+class cspss_loss(nn.Module):
+    def __init__(self, lambda1:float, 
+                 lambda2:float, 
+                 lambda3:float, 
+                 lambda4:float,
+                 log_sapce:bool):
+        super().__init__()
+        
+        self.clip_loss = ClipLoss()
+        self.ce_loss = nn.CrossEntropyLoss()
+        self.l1_loss = nn.L1Loss()
+        self.pe_loss = probability_entropy_loss()
+        self.scale = 1.0/1e-4
+
+        self.lambda1 = lambda1
+        self.lambda2 = lambda2
+        self.lambda3 = lambda3
+        self.lambda4 = lambda4
+        self.log_sapce = log_sapce
+
+    def forward(self, predicted_concepts:torch.Tensor, 
+                class_logits:torch.Tensor, 
+                class_label:torch.Tensor, 
+                concept_label:torch.Tensor, 
+                token_concepts:torch.Tensor):
+
+        bs_2, dim = predicted_concepts.shape
+        contrasive_loss = self.clip_loss(torch.reshape(predicted_concepts, (int(bs_2/2), 2 ,dim)))
+        
+        classification_loss = self.ce_loss(class_logits, class_label)
+        normalized_predicted_concepts = F.sigmoid(predicted_concepts)
+        concept_loss = self.scale * self.l1_loss(normalized_predicted_concepts, concept_label)
+        entropy_loss = self.pe_loss(token_concepts, self.log_sapce)
+        
+        if torch.any(torch.isnan(concept_loss)):
+            import pdb; pdb.set_trace()
+
+        # entropy_loss = predicted_concepts.new_zeros(1)
+
+        # backbone -> concept -> classifier
+        return self.lambda1 * classification_loss, self.lambda2 * concept_loss, self.lambda3 * entropy_loss, self.lambda4 * contrasive_loss
     
 class ls_loss(nn.Module):
     def __init__(self):
