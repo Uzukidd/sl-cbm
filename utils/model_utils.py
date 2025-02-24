@@ -401,9 +401,12 @@ class css_pcbm(CBM_Net):
         return self.backbone
     
     def forward(self, image_pairs):
-        bs, imgs, channels, h, w = image_pairs.shape
-        images = torch.reshape(image_pairs, 
-                               (bs*imgs, channels, h, w))
+        if image_pairs.shape.__len__() == 5:
+            bs, imgs, channels, h, w = image_pairs.shape
+            images = torch.reshape(image_pairs, 
+                                (bs*imgs, channels, h, w))
+        else:
+            images = image_pairs
         images = self.normalizer(images)
 
         visual_projection, visual_patches = self.backbone.encode_image(images)
@@ -499,7 +502,7 @@ class SimPool(nn.Module):
         else:
             raise ValueError(f"Unsupported number of dimensions in input tensor: {len(x.shape)}")
 
-    def forward(self, x:torch.Tensor, prepared_q:torch.Tensor=None):
+    def forward(self, x:torch.Tensor, prepared_q:torch.Tensor=None, return_attn_map:bool=False):
         if self.SIMPOOL_DEBUG_FLAG:
             import pdb; pdb.set_trace()
         # Prepare input tensor and perform GAP as initialization
@@ -529,7 +532,7 @@ class SimPool(nn.Module):
         # Compute attention scores
         attn = (qq @ kk.transpose(-2, -1)) * self.scale
         # Apply softmax for normalization
-        attn = attn.softmax(dim=-1)
+        attn = attn.softmax(dim=-1) # [B, 1, 1, _grid * _grid]
 
         # If gamma scaling is used
         if self.gamma is not None:
@@ -540,9 +543,11 @@ class SimPool(nn.Module):
                 x = x + self.beta
         else:
             # Compute the weighted sum using attention scores
-            x = (attn @ vv).transpose(1, 2).reshape(Bq, Nq, dq)        
+            x = (attn @ vv).transpose(1, 2).reshape(Bq, Nq, dq)
+        if return_attn_map:
+            return x.squeeze((1, 2)), attn.squeeze((1, 2))
         
-        return x.squeeze()
+        return x.squeeze((1, 2))
 
 # SimPooling Semi-Supervised (SPSS) VL-CBM
 class spss_pcbm(CBM_Net):
@@ -623,26 +628,56 @@ class spss_pcbm(CBM_Net):
     
     def encode_as_concepts(self, 
                            batch_X:torch.Tensor,
-                           return_token_concepts:bool=False) -> torch.Tensor:
-        B, C, W, H = batch_X.size()
+                           return_token_concepts:bool=False,
+                           return_attn_map:bool=False) -> Tuple[torch.Tensor]:
+        B, C, H, W = batch_X.size()
         images = self.normalizer(batch_X)
 
-        _, visual_patches = self.backbone.encode_image(images)
-
+        image_embedding, visual_patches = self.backbone.encode_image(images)
+        # W * H tokens + cls token x D1, cls token x D1 -> proj -> D2 == Embedding 
         # 1x1 convolution
-        token_concepts = self.token_projection(visual_patches) # [B, W * H, D] -> [B, W * H, C]
+        token_concepts = self.token_projection(visual_patches) # [B, W * H, D1] -> [B, W * H, C]
 
+        # [B, W * H, D] * [C, D]
         if self.concept_softmax:
             token_concepts = F.softmax(token_concepts, dim=2)
 
         # prepare cavs as query
-        pooled_cavs = self.cavs.mean(1).unsqueeze(0).unsqueeze(0).expand((B, -1, -1)) # [C, D]-> [B, 1, C]
+        # image_embedding @ self.cavs
+        pooled_cavs = self.cavs.mean(1).unsqueeze(0).unsqueeze(0).expand((B, -1, -1)) # [C, D2]-> [B, 1, C]
 
-        pooled_tokens = self.simpool(token_concepts, pooled_cavs) # [B, C]
+        
+        attn_map = None
+        if return_attn_map:                     # [B, W * H, C], [B, 1, C]
+            pooled_tokens, attn_map = self.simpool(token_concepts, pooled_cavs, return_attn_map=True) # [B, C]
+            _grid = int(np.round(np.sqrt(attn_map.size(-1))))
+            attn_map = attn_map.view(B, 1, _grid, _grid)
+        else:
+            pooled_tokens = self.simpool(token_concepts, pooled_cavs) # [B, C]
 
+        res_tuple = (pooled_tokens, )
         if return_token_concepts:
-            return pooled_tokens, token_concepts
-        return pooled_tokens
+            res_tuple = res_tuple + (token_concepts, )
+        
+        if return_attn_map:
+            res_tuple = res_tuple + (attn_map, )
+        
+        return res_tuple
+    
+    def attribute_class(self,
+                  batch_X:torch.Tensor) -> torch.Tensor:
+        """
+            Args: 
+                batch_X: [B, C, W, H]
+                target: int/[B, 1]
+            Return:
+                attribution: [B, 1, _grid, _grid]
+        """
+        # [C] [B, 1, grid, grid]
+        _, attn_map = self.encode_as_concepts(batch_X, return_attn_map=True)
+        attn_map = F.interpolate(attn_map, batch_X.size()[-2:], mode="bicubic")
+
+        return attn_map
     
     def attribute(self,
                   batch_X:torch.Tensor,
@@ -670,8 +705,14 @@ class spss_pcbm(CBM_Net):
         # [B, grid * grid, 1] -> # [B, 1, grid, grid]
         _grid = int(np.round(np.sqrt(N)))
         attribution = attribution.permute((0, 2, 1)).view(B, 1, _grid, _grid)
-
         return attribution
+    
+    def get_topK_concepts(self, K=5):
+        weight:torch.Tensor = self.classifier[1].weight.data  # 形状: (out_features, in_features)
+        top_values, top_indices = torch.topk(weight, k=K, dim=1)
+        top_values = top_values / torch.sum(top_values, dim=1, keepdim=True)
+        
+        return top_indices, top_values
 
     def forward_projs(self,
                       concept_projs:torch.Tensor) -> torch.Tensor:
@@ -766,6 +807,148 @@ class ls_pcbm(CBM_Net):
         if return_token_concepts:
             return token_concepts.max(1)[0], token_concepts, token_labels
         return token_concepts.max(1)[0]
+
+    def forward_projs(self,
+                      concept_projs:torch.Tensor) -> torch.Tensor:
+        return self.classifier(concept_projs)
+
+from open_clip.transformer import ResidualAttentionBlock
+
+# SimPooling Masked Semi-Supervised (SPSS) VL-CBM
+class spmss_pcbm(CBM_Net):
+
+    TRAINABLE_COMPONENTS = ["simpool", 
+                            # "token_attention", 
+                            "token_projection",
+                            "classifier"]
+
+    def __init__(self, normalizer, 
+                 concept_bank:ConceptBank, 
+                 backbone:open_clip_model_CLIP,
+                 concept_softmax:bool=False,
+                 num_of_classes:int=10
+                 ):
+        super().__init__()
+
+        self.concept_bank = concept_bank
+        self.normalizer = normalizer
+        self.backbone:open_clip_model_CLIP = backbone
+        self.concept_softmax = concept_softmax
+        self.embedding_size = self.backbone.visual.output_dim
+
+        assert hasattr(self.backbone.visual, "output_tokens")
+        self.backbone.visual.output_tokens = True
+        
+
+        self.cavs:torch.Tensor = self.concept_bank.vectors.detach().clone() # [18, D]
+        self.concept_names:list[str] = self.concept_bank.concept_names.copy()
+
+        self.n_concepts = self.cavs.shape[0]
+        self.num_of_concepts = self.concept_bank.concept_names.__len__()
+        self.num_of_classes = num_of_classes
+
+        self.simpool = SimPool(self.num_of_concepts, 
+                               num_heads=1, 
+                               qkv_bias=False, 
+                               qk_scale=None, 
+                               use_beta=True)
+
+        token_width = self.backbone.get_submodule("visual").proj.size(0)
+        n_head = self.backbone.get_submodule("visual.transformer.resblocks.0.attn").num_heads
+        self.token_attention = ResidualAttentionBlock(d_model = token_width, 
+                                                      n_head = n_head,
+                                                      batch_first = True)
+        
+        self.token_projection = nn.Linear(in_features=token_width, 
+                                        out_features=self.num_of_concepts)
+
+        self.classifier = nn.Sequential(
+            nn.LayerNorm(self.num_of_concepts),
+            nn.Linear(self.num_of_concepts, self.num_of_classes),
+        )
+
+    def get_expalainable_component(self):
+        return self.simpool
+
+    def train(self, mode=True):
+        for p in self.backbone.parameters(): p.requires_grad=not mode
+        super().train(mode)
+
+    def set_weights(self, weights:torch.Tensor, bias:torch.Tensor):
+        self.classifier[1].weight.data = torch.tensor(weights).to(self.classifier[1].weight.device)
+        self.classifier[1].bias.data = torch.tensor(bias).to(self.classifier[1].weight.device)
+        return True
+
+    def state_dict(self):
+        return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}
+    
+    def get_backbone(self) -> open_clip_model_CLIP:
+        return self.backbone
+    
+    def forward(self, input_X:torch.Tensor):
+        if input_X.size().__len__() == 5:
+            B, N, C, W, H = input_X.size()
+            images = torch.reshape(input_X, 
+                                (B * N, C, W, H))
+        else:
+            images = input_X
+        pooled_tokens, token_concepts = self.encode_as_concepts(images, return_token_concepts=True)
+        #     (bs*2,C)         (bs*2,Class)
+        return self.classifier(pooled_tokens), pooled_tokens, token_concepts
+    
+    def encode_as_concepts(self, 
+                           batch_X:torch.Tensor,
+                           return_token_concepts:bool=False) -> torch.Tensor:
+        B, C, W, H = batch_X.size()
+        images = self.normalizer(batch_X)
+
+        _, visual_patches = self.backbone.encode_image(images)
+        
+        # mixed_concepts = self.token_attention(visual_patches) # [B, W * H, D] -> [B, W * H, D]
+
+        # 1x1 convolution
+        token_concepts = self.token_projection(visual_patches) # [B, W * H, D] -> [B, W * H, C]
+
+        if self.concept_softmax:
+            token_concepts = F.softmax(token_concepts, dim=2)
+
+        # prepare cavs as query
+        pooled_cavs = self.cavs.mean(1).unsqueeze(0).unsqueeze(0).expand((B, -1, -1)) # [C, D]-> [B, 1, C]
+
+        pooled_tokens = self.simpool(token_concepts, pooled_cavs) # [B, C]
+
+        if return_token_concepts:
+            return pooled_tokens, token_concepts
+        return pooled_tokens
+    
+    def attribute(self,
+                  batch_X:torch.Tensor,
+                  target:Union[torch.Tensor|int], 
+                  additional_args:dict={}) -> torch.Tensor:
+        """
+            Args: 
+                batch_X: [B, C, W, H]
+                target: int/[B, 1]
+            Return:
+                attribution: [B, 1, _grid, _grid]
+        """
+        # [C] [B, grid * grid, C]
+        _, token_concepts = self.encode_as_concepts(batch_X, return_token_concepts=True)
+        B, N, C = token_concepts.size()
+
+        if isinstance(target, torch.Tensor):
+            # [B, grid * grid, 1]
+            expanded_target = target.unsqueeze(1).unsqueeze(1).expand(-1, N, -1) # [B, N, 1]
+            attribution = token_concepts.gather(dim=2, index=expanded_target) # [B, grid * grid, 1]
+        else:
+            # [1, grid * grid, C]
+            attribution = token_concepts[:, :, target:target+1] # [1, grid * grid, 1]
+        
+        # [B, grid * grid, 1] -> # [B, 1, grid, grid]
+        _grid = int(np.round(np.sqrt(N)))
+        attribution = attribution.permute((0, 2, 1)).view(B, 1, _grid, _grid)
+
+        return attribution
 
     def forward_projs(self,
                       concept_projs:torch.Tensor) -> torch.Tensor:

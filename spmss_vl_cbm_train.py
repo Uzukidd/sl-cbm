@@ -41,7 +41,7 @@ def config():
     
     # PCBM, classifier, cub_net, etc
     parser.add_argument("--pcbm-ckpt", type=str)
-    parser.add_argument("--pcbm-arch", default="spss_pcbm", type=str)
+    parser.add_argument("--pcbm-arch", default="spmss_pcbm", type=str)
 
     parser.add_argument("--dataset", default="spss_rival10", type=str)
     parser.add_argument("--device", default="cuda", type=str)

@@ -59,24 +59,6 @@ def config():
 
     return parser.parse_args()
 
-def estimate_top_concepts_accuracy(concept_predictions, concept_labels):
-
-    bs = concept_predictions.shape[0]
-    mini_batch_correct_concepts = 0
-    mini_batch_total_concepts = 0
-
-    for i in range(bs):
-
-        k_val = int(torch.sum(concept_labels[i]).item())  # active labels for that class
-        _, top_gt_indices = torch.topk(concept_labels[i], k=k_val, dim=-1)
-        _, top_pred_indices = torch.topk(concept_predictions[i], k=k_val, dim=-1)
-
-        for k in top_pred_indices:
-            mini_batch_total_concepts+=1
-            if k in top_gt_indices: mini_batch_correct_concepts+=1
-
-    return mini_batch_correct_concepts, mini_batch_total_concepts
-
 def train_one_epoch(train_data_loader, model, optimizer, loss_fn, regular_loss_fn, device):
     
     contrastive_loss = []
@@ -205,34 +187,6 @@ def val_one_epoch(val_data_loader, model, loss_fn, device):
     total_concept_acc = round(concept_acc/concept_count,4)*100
     return acc, total_concept_acc
 
-def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, concept_bank:ConceptBank):
-
-    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
-                                                    "layer_grad_cam_vit")(forward_func=model.encode_as_concepts,
-                                                                        model = model)
-    explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, "layer_grad_cam_vit")
-    # attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
-    explain_concept:torch.Tensor = torch.arange(0, concept_bank.concept_info.concept_names.__len__()).to(args.device)
-    
-    # Start Rival attrbution alignment evaluation
-    res_dict = interpret_all_concept(args, model,
-                            dataset.test_loader, 
-                            partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
-                            explain_concept)
-
-    for metric in ["iou", "dice", "prec_iou"]:
-        attrwise_metric = res_dict[metric]
-        torch.save(attrwise_metric.detach().cpu(), os.path.join(args.save_path, f"{metric}_info.pt"))
-        args.logger.info(f"--------{metric}\n\n")
-        for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
-            args.logger.info(f"{class_name}:")
-            for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_metric[label]):
-                args.logger.info(f" - {name}: {iou:.4f}")
-
-        args.logger.info(f"totall ({attrwise_metric.nanmean():.4f}):")
-        for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
-            args.logger.info(f" - {concepts_name}: {attrwise_metric[:, ind].nanmean():.4f}")
-
 def main(args:argparse.Namespace):
     set_random_seed(args.universal_seed)
     concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
@@ -252,21 +206,6 @@ def main(args:argparse.Namespace):
         val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, loss_func, args.device)
         args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
         return
-    
-    # if args.cross_entropy_regular:
-    #     # explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
-    #     #                                             args.explain_method)(forward_func=model.encode_as_concepts,
-    #     #                                                                 model = model)
-    #     explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
-    #                                         args.explain_method)(forward_func=model.direct_encode_as_concepts,
-    #                                                             model = model)
-    #     explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
-    #     regular_loss_func = cross_entropy_concept_loss(model = model,
-    #                                                     explain_forward = partial(explain_algorithm_forward, 
-    #                                                     explain_algorithm=explain_algorithm),
-    #                                                     feature_range = (0.0, 1.0),
-    #                                                     scale = args.loss4_scale,
-    #                                                     K = int(args.k * dataset_constants.image_size[-1] * dataset_constants.image_size[-2]))
 
     for epoch in range(5):
         begin = time.time()
@@ -293,7 +232,7 @@ def main(args:argparse.Namespace):
         batch_size = args.batch_size,
         num_workers = args.num_workers
     ), backbone.preprocess)
-    eval_attribution_alignment(args, model, rival10_dataset, concept_bank)
+    eval_attribution_alignment(args, model, rival10_dataset, concept_bank, args.explain_method)
     
 if __name__ == "__main__":
     args = config()

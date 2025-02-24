@@ -432,6 +432,16 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
             model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
             print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
         model.to(args.device)
+    elif args.pcbm_arch == "spmss_pcbm":
+        model = spmss_pcbm(model_context.normalizer, 
+                        model_context.concept_bank, 
+                        model_context.backbone,
+                        False,
+                        num_of_classes)
+        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
+            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
+            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
+        model.to(args.device)
     elif args.pcbm_arch == "ls_pcbm":
         model = ls_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 

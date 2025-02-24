@@ -3,3 +3,8 @@ for i in "${lambdas[@]}"; do
     echo "lambda = [$i]"
     bash spss_vl_cbm_train_simple_concepts_with_lambda.sh $i
 done
+
+for i in "${lambdas[@]}"; do
+    echo "lambda = [$i]"
+    bash spss_vl_cbm_train_simple_concepts_with_lambda_softmax.sh $i
+done
