@@ -31,6 +31,9 @@ import rival10
 from rival10 import LocalRIVAL10, constants
 from .constants import dataset_constants
 from .model_utils import *
+from .clip_cbm import *
+from .ccs_cbm import *
+from .spss_cbm import *
 
 rival10.constants.RIVAL10_constants.set_rival10_dir(dataset_constants.RIVAL10_DIR)
 

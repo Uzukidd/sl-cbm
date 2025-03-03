@@ -11,39 +11,177 @@ from .visual_utils import *
 from .constants import *
 from .explain_utils import *
 from .common_utils import *
-from typing import Callable
+from typing import Callable, Dict, Tuple
 
 eps=1e-10
-def binarize(m):
+def binarize(m:torch.Tensor):
     m = m.clone()
-    # m[m < 0] = 0
+    m[m>0.5] = 1
+    m[m<0.5] = 0
+    return m
+
+def normalize(m:torch.Tensor):
+    m = m.clone()
     m[torch.isnan(m)] = 0
 
     max_val = torch.amax(m, dim=(1, 2, 3)).view(-1, 1, 1, 1)
     max_val[max_val < eps] = eps
     m = m / max_val
-    m[m>0.5] = 1
-    m[m<0.5] = 0
+
     return m
 
-def attribution_iou(batch_attribution:torch.Tensor, batch_attr_mask:torch.Tensor, eps=1e-10, vis:bool=False, ind_X:torch.Tensor=None):
+class attribution_metric:
+    __ALL_METRIC__ = ["iou", "dice", "prec_iou"]
+
+    def __init__(self, 
+                name:str, 
+                num_labels:int, 
+                num_concepts:int):
+        self.name:str = name
+        self.amount:Dict[str, torch.Tensor] = {k: torch.zeros((num_labels, num_concepts)) for k in self.__ALL_METRIC__} #3 x [N, C]
+        self.value:Dict[str, torch.Tensor] = {k: torch.zeros((num_labels, num_concepts)) for k in self.__ALL_METRIC__}
+
+    def load_from_dict(self, formatted_dict:Dict):
+        self.name:str = formatted_dict["name"]
+        self.amount:Dict[str, torch.Tensor] = formatted_dict["amount"]
+        self.value:Dict[str, torch.Tensor] = formatted_dict["value"]
+
+    @staticmethod
+    def pack_tuple(attribution:Tuple[torch.Tensor]):
+        res_dict = {name: metric for metric, name in 
+            zip(attribution, 
+                attribution_metric.__ALL_METRIC__)}
+        return res_dict
+
+    def update(self, label:int, 
+               attribution_metric:Dict[str,torch.Tensor], 
+               attribution_mask:torch.Tensor,
+               valid_attribution_mask:torch.Tensor):
+        for metric in self.__ALL_METRIC__:
+            # Align tensor device
+            if self.amount[metric].device != attribution_metric[metric].device:
+                self.amount[metric] = self.amount[metric].to(attribution_metric[metric].device)
+                self.value[metric] = self.value[metric].to(attribution_metric[metric].device)
+            
+            self.amount[metric][label] += attribution_mask
+            self.value[metric][label] += attribution_metric[metric] * valid_attribution_mask
+
+    def format_dict(self):
+        return {
+            "name":self.name,
+            "amount":{k:v.detach().cpu() for k, v in self.amount.items()},
+            "value":{k:v.detach().cpu() for k, v in self.value.items()},
+        }
+
+    def format_output(self, class_name:list[str], concept_name:list[str], full_text:bool=False) -> str:
+        header = "\t\t\tIoU\tDice\tPrecIoU\n"
+        metric_template = "{name:16}\t{iou:.2f}\t{dice:.2f}\t{prec_iou:.2f}\n"
+
+        formatted_str = f"{self.name}\n" + header + ""
+
+        totall_metric = {}
+        all_metric = {}
+
+        for metric in self.__ALL_METRIC__:
+            total_amount = self.amount[metric].sum(dim=0)
+            total_value = self.value[metric].sum(dim=0)
+            totall_metric[metric] = total_value/total_amount
+
+            all_metric[metric] = self.value[metric].sum()/self.amount[metric].sum()
+
+
+        for ind, concepts_name in enumerate(concept_name):
+            formatted_str += metric_template.format(name=concepts_name, **{k:t[ind] for k, t in totall_metric.items()})
+        
+        formatted_str += metric_template.format(name="Totall", **{k:t for k, t in all_metric.items()})
+
+        return formatted_str
+ 
+
+        
+class class_attribution_metric(attribution_metric):
+
+    def __init__(self, 
+                name:str, 
+                num_labels:int):
+        super().__init__(name, num_labels, 1)
+
+    @staticmethod
+    def pack_tuple(attribution:Tuple[torch.Tensor]):
+        res_dict = {name: metric for metric, name in 
+            zip(attribution, 
+                attribution_metric.__ALL_METRIC__)}
+        return res_dict
+
+    def update(self, label:int, 
+               attribution_metric:Dict[str,torch.Tensor]):
+        for metric in self.__ALL_METRIC__:
+            # Align tensor device
+            if self.amount[metric].device != attribution_metric[metric].device:
+                self.amount[metric] = self.amount[metric].to(attribution_metric[metric].device)
+                self.value[metric] = self.value[metric].to(attribution_metric[metric].device)
+            
+            self.amount[metric][label] += 1
+            self.value[metric][label] += attribution_metric[metric]
+
+    def format_dict(self):
+        return {
+            "name":self.name,
+            "amount":{k:v.detach().cpu().numpy() for k, v in self.amount.items()},
+            "value":{k:v.detach().cpu().numpy() for k, v in self.value.items()},
+        }
+
+    def format_output(self, classes_name:list[str], full_text:bool=False) -> str:
+        header = "\t\t\tIoU\tDice\tPrecIoU\n"
+        metric_template = "{name:16}\t{iou:.2f}\t{dice:.2f}\t{prec_iou:.2f}\n"
+
+        formatted_str = f"{self.name}\n" + header + ""
+
+        totall_metric = {}
+        all_metric = {}
+
+        for metric in self.__ALL_METRIC__:
+            total_amount = self.amount[metric].sum(dim=1)
+            total_value = self.value[metric].sum(dim=1)
+            totall_metric[metric] = total_value/total_amount
+
+            all_metric[metric] = self.value[metric].sum()/self.amount[metric].sum()
+
+
+        for ind, class_name in enumerate(classes_name):
+            formatted_str += metric_template.format(name=class_name, **{k:t[ind] for k, t in totall_metric.items()})
+        
+        formatted_str += metric_template.format(name="Totall", **{k:t for k, t in all_metric.items()})
+
+        return formatted_str
+
+
+def attribution_iou(batch_attribution:torch.Tensor, 
+                    batch_attr_mask:torch.Tensor, 
+                    eps=1e-10, 
+                    vis:bool=False, 
+                    ind_X:torch.Tensor=None,
+                    only_positive:bool=True,
+                    binarize_or_not:bool=False):
     """
         args:
             batch_attribution: [B, ...] (non-binarized/non-positive)
             batch_attr_mask: [B, ...] (non-binarized/non-positive)
     """
+    if only_positive:
+        batch_attribution = torch.maximum(batch_attribution, 
+                                        batch_attribution.new_zeros(batch_attribution.size()))
+        
+    batch_attribution = normalize(batch_attribution)
+    
+    if binarize_or_not:
+        batch_attribution = binarize(batch_attribution)
 
-    binarized_batch_attribution = torch.maximum(batch_attribution, 
-                                                batch_attribution.new_zeros(batch_attribution.size()))
-    binarized_batch_attribution = binarize(binarized_batch_attribution)
-
-    binarized_batch_attr_mask = batch_attr_mask
-
-    intersection = binarized_batch_attribution * binarized_batch_attr_mask
+    intersection = batch_attribution * batch_attr_mask
     intersection = torch.sum(intersection, dim=(1, 2, 3))
 
-    union = torch.sum((binarized_batch_attribution + binarized_batch_attr_mask) > 0, dim=(1, 2, 3))
-    attribution_area = torch.sum(binarized_batch_attribution > 0, dim=(1, 2, 3))
+    union = torch.sum(torch.max(batch_attribution, batch_attribution), dim=(1, 2, 3))
+    attribution_area = torch.sum(batch_attribution, dim=(1, 2, 3))
 
     dice = (2 * intersection + eps) / (union + intersection + eps)
     iou = (intersection + eps) / (union + eps)
@@ -61,7 +199,9 @@ def __vis_ind_image(ind_X:torch.Tensor,
     
     binarized_batch_attribution = torch.maximum(batch_attribution, 
                                                 batch_attribution.new_zeros(batch_attribution.size()))
-    binarized_batch_attribution = binarize(binarized_batch_attribution)
+    batch_attribution = normalize(batch_attribution)
+
+    # binarized_batch_attribution = binarize(binarized_batch_attribution)
 
     binarized_batch_attr_mask = batch_attr_mask
 
@@ -72,7 +212,7 @@ def __vis_ind_image(ind_X:torch.Tensor,
     
 def collect_class_attribution(batch_attribution:torch.Tensor, 
                               concepts_indices:torch.Tensor,
-                              concepts_weights:torch.Tesnor,
+                              concepts_weights:torch.Tensor,
                               label:int):
     """
         args:
@@ -119,27 +259,37 @@ def save_best_image(ind_class_name:str,
             if best_iou[attr_label] <= iou[attr_label]:
                 __vis_ind_image(ind_X, attribution, ind_attr_masks, attr_label, f"{ind_class_name}-{attr_name}-best", save_to)
 
-__ALL_METRIC__ = ["iou", "dice", "prec_iou"]
+
 def interpret_all_concept(args,
-                        model:nn.Module,
+                        model:CBM_Net,
                         data_loader:DataLoader,
                         explain_algorithm_forward:Callable,
                         explain_concept:torch.Tensor):
-    attrwise_metric = { }
-    for metric in __ALL_METRIC__:
-        attrwise_metric[metric] = {
-            "best": [None for i in range(10)],
-            "val": [None for i in range(10)],
-            "amount": [None for i in range(10)],
-        }
+    concepts_segmentation_metric = attribution_metric("cocnepts_segmentation_metric", 
+                                            num_labels=model.get_num_classes(),
+                                            num_concepts=model.get_num_concepts()) #only-posistive, binarized
     
-    save_to = os.path.join(args.save_path, "images", "concept")
-    
-    topK_concepts_idx:torch.Tensor = None
-    topK_concepts_weights:torch.Tensor = None
-    
-    if hasattr(model, "get_topK_concepts"):
-        topK_concepts_idx, topK_concepts_weights = model.get_topK_concepts()
+    classes_segmentation_metric = class_attribution_metric("classes_segmentation_metric", 
+                                            num_labels=model.get_num_classes()) #only-posistive, binarized
+
+    weighted_cocnepts_metric = attribution_metric("weighted_concepts_metric", 
+                                            num_labels=model.get_num_classes(),
+                                            num_concepts=model.get_num_concepts()) #only-posistive, not-binarized
+    # Save saliency map as pth file if needed.
+    # saliency_map_pack = None
+    # if save_saliency_map:
+    #     saliency_map_pack = {
+    #         "concepts_saliency_map": [], 
+    #         "classes_saliency_map": [],
+    #     }
+
+
+    # Assign saving path
+    concept_save_to = os.path.join(args.save_path, "images", "concept")
+    class_save_to = os.path.join(args.save_path, "images", "class")
+
+    # Prepare weighted class attribution
+    topk_concept_indice, topk_concept_weights = model.get_topK_concepts() # [C, K], [C, K]
 
     for idx, data in enumerate(tqdm(data_loader)):
         image:torch.Tensor =  data["img"].to(args.device)
@@ -161,126 +311,83 @@ def interpret_all_concept(args,
             ind_class_name = class_name[batch_mask]
             ind_class_label = class_label[batch_mask].item()
 
-            k_val = int(torch.sum(ind_attr_labels).item())  # active labels for that class
+            # Get active labels
+            k_val = int(torch.sum(ind_attr_labels).item())
             valid_concepts_mask = torch.zeros_like(ind_attr_labels)
             _, top_pred_indices = torch.topk(concept_predictions[batch_mask], k=k_val, dim=-1)
             valid_concepts_mask[top_pred_indices] = 1
             valid_concepts_mask = valid_concepts_mask & ind_attr_labels
 
-
+            # Explain concepts
             model.zero_grad()
-            attribution = explain_algorithm_forward(
+            concepts_attribution:torch.Tensor = explain_algorithm_forward(
                 batch_X = ind_X,
                 target = explain_concept
             ) #[18, 1, H, W]
-            res_dict = {}
-            res_dict["iou"], res_dict["dice"], res_dict["prec_iou"] =  attribution_iou(attribution.sum(dim=1, keepdim=True), ind_attr_masks, ind_X=ind_X)
+
+            classes_attribution:torch.Tensor = CBM_Net.attribute_weighted_class(concepts_attribution, 
+                                                                    topk_concept_weights[ind_class_label], 
+                                                                    topk_concept_indice[ind_class_label])
+             #[1, 1, H, W]
+
+
+            # # Save saliency map while remaining batch dimension
+            # if save_saliency_map:
+            #     saliency_map_pack["concepts_saliency_map"].append(concepts_attribution.detach().cpu())
+            #     saliency_map_pack["classes_saliency_map"].append(classes_attribution.detach().cpu())
+
+            # ----------
+            # Concepts segmentation metric
+            # ----------
+            concepts_metric = attribution_iou(concepts_attribution.sum(dim=1, keepdim=True), 
+                                              ind_attr_masks, 
+                                              ind_X=ind_X,
+                                              binarize_or_not=True)
+            concepts_metric = attribution_metric.pack_tuple(concepts_metric)
+            concepts_segmentation_metric.update(ind_class_label, concepts_metric, ind_attr_labels, valid_concepts_mask)
             
+            # ----------
+            # Weighted concepts segmentation metric
+            # ----------
+            weighted_metric = attribution_iou(concepts_attribution.sum(dim=1, keepdim=True), 
+                                              ind_attr_masks, 
+                                              ind_X=ind_X,
+                                              binarize_or_not=False)
+            weighted_metric = attribution_metric.pack_tuple(weighted_metric)
+            weighted_cocnepts_metric.update(ind_class_label, weighted_metric, ind_attr_labels, valid_concepts_mask)
+
+            # ----------
+            # Classes segmentation metric
+            # ----------
+            classes_metric = attribution_iou(classes_attribution, 
+                                            ind_attr_masks[-1:], 
+                                            ind_X=ind_X,
+                                            binarize_or_not=True)
+            classes_metric = attribution_metric.pack_tuple(classes_metric)
+            classes_segmentation_metric.update(ind_class_label, classes_metric)
+
+            # Save preview image
             if idx < 15:
                 save_key_image(ind_class_name, 
                             ind_X,
-                            attribution.sum(dim=1, keepdim=True),
+                            concepts_attribution.sum(dim=1, keepdim=True),
                             ind_attr_masks,
                             f"{idx}:{batch_mask}",
-                            save_to)
-                            
-            for metric in __ALL_METRIC__:
-                attrwise_metric[metric]
-                if attrwise_metric[metric]["val"][ind_class_label] is None:
-                    attrwise_metric[metric]["val"][ind_class_label] = image.new_zeros(K)
-                    attrwise_metric[metric]["amount"][ind_class_label] = image.new_zeros(K)
-                    attrwise_metric[metric]["best"][ind_class_label] = image.new_zeros(K)
-            
-                attrwise_metric[metric]["amount"][ind_class_label] += ind_attr_labels
-                attrwise_metric[metric]["val"][ind_class_label] += res_dict[metric] * valid_concepts_mask
-
-                attrwise_metric[metric]["best"][ind_class_label] = torch.max(attrwise_metric[metric]["best"][ind_class_label], 
-                                                           res_dict[metric] * valid_concepts_mask)
-            
-            save_best_image(ind_class_name, 
-                            ind_X,
-                            attribution.sum(dim=1, keepdim=True),
-                            ind_attr_masks,
-                            attrwise_metric["iou"]["best"][ind_class_label],
-                            res_dict["iou"] * ind_attr_labels,
-                            save_to)
-
-            
-    for metric in __ALL_METRIC__:
-        attrwise_metric[metric]["val"] = torch.stack(attrwise_metric[metric]["val"]) / torch.stack(attrwise_metric[metric]["amount"])
-    return {
-        metric: attrwise_metric[metric]["val"] for metric in __ALL_METRIC__
-    }
-    
-def interpret_class(args,
-                    model:nn.Module,
-                    data_loader:DataLoader):
-    attrwise_metric = { }
-    for metric in __ALL_METRIC__:
-        attrwise_metric[metric] = {
-            "best": [None for i in range(10)],
-            "val": [None for i in range(10)],
-            "amount": [None for i in range(10)],
-        }
-    
-    save_to = os.path.join(args.save_path, "images", "class")
-
-    for idx, data in enumerate(tqdm(data_loader)):
-        image:torch.Tensor =  data["img"].to(args.device)
-        attr_labels:torch.Tensor = data["attr_labels"].to(args.device)
-        attr_masks:torch.Tensor = data["attr_masks"][:, :-1, :, :, :].amax(dim=2, keepdim=True).to(args.device)
-        class_label:torch.Tensor = data["og_class_label"].to(args.device)
-        class_name:torch.Tensor = data["og_class_name"]
-
-        B, C, W, H = image.size()
-        _, K = attr_labels.size()
-
-        for batch_mask in range(B):
-            ind_X = image[batch_mask:batch_mask+1]
-            ind_attr_labels = attr_labels[batch_mask]
-            ind_attr_masks = attr_masks[batch_mask]
-            ind_class_name = class_name[batch_mask]
-            ind_class_label = class_label[batch_mask].item()
-
-
-            model.zero_grad()
-            attribution = model.attribute_class(
-                batch_X = ind_X,
-            )
-            
-            # res_dict = {}
-            # res_dict["iou"], res_dict["dice"], res_dict["prec_iou"] =  attribution_iou(attribution(dim=1, keepdim=True), ind_attr_masks, ind_X=ind_X)
-            
-            if idx < 15:
-                __vis_ind_image(ind_X, attribution, ind_attr_masks, -1, f"{idx}-{batch_mask}", save_to)
-                            
-            # for metric in __ALL_METRIC__:
-            #     attrwise_metric[metric]
-            #     if attrwise_metric[metric]["val"][ind_class_label] is None:
-            #         attrwise_metric[metric]["val"][ind_class_label] = 0
-            #         attrwise_metric[metric]["amount"][ind_class_label] = 0
-            #         attrwise_metric[metric]["best"][ind_class_label] = 0
+                            concept_save_to)
+                __vis_ind_image(ind_X, 
+                                classes_attribution, 
+                                ind_attr_masks, 
+                                -1, 
+                                f"{ind_class_name}-{idx}:{batch_mask}", 
+                                class_save_to)
                 
-            #     attrwise_metric[metric]["amount"][ind_class_label] += ind_attr_labels
-            #     attrwise_metric[metric]["val"][ind_class_label] += res_dict[metric]
+    # if save_saliency_map:
+    #     saliency_map_pack["concepts_saliency_map"] = torch.stack(saliency_map_pack["concepts_saliency_map"])  #[N, 18, 1, H, W]
+    #     saliency_map_pack["classes_saliency_map"] =  torch.stack(saliency_map_pack["classes_saliency_map"])  #[N, 1, 1, H, W]
 
-            #     attrwise_metric[metric]["best"][ind_class_label] = torch.max(attrwise_metric[metric]["best"][ind_class_label], 
-            #                                                res_dict[metric])
-            
-            # save_best_image(ind_class_name, 
-            #                 ind_X,
-            #                 attribution.sum(dim=1, keepdim=True),
-            #                 ind_attr_masks,
-            #                 attrwise_metric["iou"]["best"][ind_class_label],
-            #                 res_dict["iou"] * ind_attr_labels,
-            #                 save_to)
 
-            
-    # for metric in __ALL_METRIC__:
-    #     attrwise_metric[metric]["val"] = torch.stack(attrwise_metric[metric]["val"]) / torch.stack(attrwise_metric[metric]["amount"])
-    # return {
-    #     metric: attrwise_metric[metric]["val"] for metric in __ALL_METRIC__
-    # }
+    return concepts_segmentation_metric, classes_segmentation_metric, weighted_cocnepts_metric
+
 
 def estimate_top_concepts_accuracy(concept_predictions, concept_labels):
 
@@ -358,24 +465,25 @@ def eval_attribution_alignment(args, model:CBM_Net, dataset:dataset_collection, 
     # attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
     explain_concept:torch.Tensor = torch.arange(0, concept_bank.concept_info.concept_names.__len__()).to(args.device)
     
+    eval_save_to = os.path.join(args.save_path, "evaluations")
+    if not os.path.exists(eval_save_to):
+        os.mkdir(eval_save_to)
+
     # Start Rival attrbution alignment evaluation
-    interpret_class(args,
-                    model,
-                    dataset.test_loader, )
-    res_dict = interpret_all_concept(args, model,
+    concepts_segmentation_metric, classes_segmentation_metric, weighted_cocnepts_metric = interpret_all_concept(args, model,
                             dataset.test_loader, 
                             partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
                             explain_concept)
-    
-    for metric in ["iou", "dice", "prec_iou"]:
-        attrwise_metric = res_dict[metric]
-        torch.save(attrwise_metric.detach().cpu(), os.path.join(args.save_path, f"{metric}_info.pt"))
-        args.logger.info(f"--------{metric}\n\n")
-        for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
-            args.logger.info(f"{class_name}:")
-            for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_metric[label]):
-                args.logger.info(f" - {name}: {iou:.4f}")
+    args.logger.info(concepts_segmentation_metric.format_output(RIVAL10_constants._ALL_CLASSNAMES, 
+                                                                concept_bank.concept_info.concept_names))
+    args.logger.info(weighted_cocnepts_metric.format_output(RIVAL10_constants._ALL_CLASSNAMES, 
+                                                                concept_bank.concept_info.concept_names))
+    args.logger.info(classes_segmentation_metric.format_output(RIVAL10_constants._ALL_CLASSNAMES))
 
-        args.logger.info(f"totall ({attrwise_metric.nanmean():.4f}):")
-        for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
-            args.logger.info(f" - {concepts_name}: {attrwise_metric[:, ind].nanmean():.4f}")
+    torch.save(concepts_segmentation_metric.format_dict(), os.path.join(eval_save_to, "concepts_segmentation_metric.pt"))
+    torch.save(weighted_cocnepts_metric.format_dict(), os.path.join(eval_save_to, "weighted_cocnepts_metric.pt"))
+    torch.save(classes_segmentation_metric.format_dict(), os.path.join(eval_save_to, "classes_segmentation_metric.pt"))
+    # torch.save(saliency_map_pack, os.path.join(eval_save_to, "saliency_map_pack.pt"))
+
+
+

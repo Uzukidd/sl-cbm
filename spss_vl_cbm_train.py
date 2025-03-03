@@ -49,6 +49,7 @@ def config():
     parser.add_argument("--num-workers", default=4, type=int)
     
     parser.add_argument("--loss", default="spss", type=str)
+    parser.add_argument("--epoch", default=5, type=int)
     parser.add_argument("--use-concept-softmax", action='store_true')
     parser.add_argument("--lambda1", default=1.0, type=float)
     parser.add_argument("--lambda2", default=1.0, type=float)
@@ -169,7 +170,7 @@ def main(args:argparse.Namespace):
     if args.evaluate:
         return
 
-    for epoch in range(5):
+    for epoch in range(args.epoch):
         begin = time.time()
 
         ###Training
@@ -178,7 +179,7 @@ def main(args:argparse.Namespace):
         val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, args.device)
 
         if not args.not_save_ckpt:
-            save_to = os.path.join(args.save_path, f"spss_cbm_{args.backbone_name}.pt")
+            save_to = os.path.join(args.save_path, "trainable_weights.pt")
             torch.save(model.state_dict(), save_to)
 
         args.logger.info('\n\t Epoch.... %d', epoch + 1)

@@ -114,22 +114,6 @@ class CBM_Net(ABC, nn.Module):
                 f"output_{type}", 
                 True)
     
-    # @abstractmethod
-    # def get_normalizer(self) -> Union[nn.Module, transforms.Compose]:
-    #     pass
-    
-    # @abstractmethod
-    # def get_embedding_encoder(self) -> nn.Module:
-    #     pass
-
-    # @abstractmethod
-    # def get_cocnept_encoder(self) -> nn.Module:
-    #     pass
-
-    # @abstractmethod
-    # def get_pcbm_pipeline(self) -> nn.Module:
-    #     pass
-
     def attribute(self,
                   batch_X:torch.Tensor,
                   target:Union[torch.Tensor|int], additional_args:dict={}) -> torch.Tensor:
@@ -157,298 +141,79 @@ class CBM_Net(ABC, nn.Module):
         pcbm = self.get_pcbm_pipeline()
         return pcbm(batch_X)
     
-    # # img -> embedding
-    # @abstractmethod
-    # def embed(self, 
-    #           batch_X:torch.Tensor) -> torch.Tensor:
-    #     pass
-    
-    # # embedding -> cocnept projections
-    # @abstractmethod
-    # def comput_dist(self,
-    #                 embeddings:torch.Tensor) -> torch.Tensor:
-    #     pass
-    
     # cocnept projections -> batch logit
     @abstractmethod
     def forward_projs(self,
                       concept_projs:torch.Tensor) -> torch.Tensor:
         pass
 
-
-# class PCBM_Net(CBM_Net):
-#     def __init__(self, model_context:model_pipeline):
-#         super().__init__(model_context = model_context)
-#         self.normalizer = model_context.normalizer
-#         self.backbone = model_context.backbone
-#         self.posthoc_layer = model_context.posthoc_layer
-        
-#     def forward(self, 
-#                 input_x:torch.Tensor):
-#         assert (int(self.output_class) + int(self.output_logit) + int(self.output_embedding)) <= 1
-#         batch_X_normalized = self.normalizer(input_x)
-#         embeddings = self.backbone.encode_image(batch_X_normalized)
-        
-#         concept_projs = self.posthoc_layer.compute_dist(embeddings)
-#         class_logit = self.posthoc_layer.forward_projs(concept_projs)
-        
-#         if self.output_class:
-#             return self.posthoc_layer.forward_projs(concept_projs).argmax(1)
-       
-#         if self.output_logit:
-#             return self.posthoc_layer.forward_projs(concept_projs)
-
-        
+    # ------------
+    # Getter
+    # ------------
+    def get_num_classes(self):
+        raise NotImplementedError
     
-#     def get_normalizer(self) -> Union[nn.Module, transforms.Compose]:
-#         return self.normalizer
+    def get_num_concepts(self):
+        raise NotImplementedError
+
+
+    # ------------
+    # Attribution
+    # ------------
+
+    # Get concepts contribution
+    def get_topK_concepts(self, K:int=5):
+        """
+            Args:
+                K:int
+            
+            Returns:
+                top_indices:[C, K]
+                top_values:[C, K]
+        """
+        raise NotImplementedError
+
+    # Concepts attribution (Builtin attribution)
+    def attribute(self,
+                batch_X:torch.Tensor,
+                target:Union[torch.Tensor|int], 
+                additional_args:dict={}) -> torch.Tensor:
+        raise NotImplementedError
     
-#     def get_embedding_encoder(self) -> nn.Module:
-#         return Tranforms_Wrapper(self.normalizer, self.backbone)
-
-#     def get_cocnept_encoder(self) -> nn.Module:
-#         return Tranforms_Wrapper(self.normalizer, nn.Sequential(
-#             self.backbone,
-#             self.posthoc_layer.CAV_layer
-#         ))
-
-#     def get_pcbm_pipeline(self) -> nn.Module:
-#         return self
+    # Attention map attribution
+    def attribute_attn_map(self,
+                batch_X:torch.Tensor,
+                target:Union[torch.Tensor|int],) -> torch.Tensor:
+        """
+            Args: 
+                batch_X: [B, C, W, H]
+                target: int/[B, 1]
+            Return:
+                attribution: [B, 1, _grid, _grid]
+        """
+        raise NotImplementedError
     
-#     def embed(self, 
-#               input_x:torch.Tensor) -> torch.Tensor:
-#         batch_X_normalized = self.normalizer(input_x)
-#         embeddings = self.backbone.encode_image(batch_X_normalized)
-        
-#         return embeddings
+    @staticmethod
+    def attribute_weighted_class(concepts_attribution:torch.Tensor, 
+                                 concepts_weights:torch.Tensor,
+                                 concepts_idx:torch.Tensor,
+                                 normalized:bool=True):
+        """
+            Args: 
+                concepts_attribution: [B, 1, _grid, _grid];
+                concepts_weights: [K, 1];
+                concepts_idx: [K, 1];
+                normalized: bool;
+            Return:
+                class_attribution: [1, 1, _grid, _grid];
+        """
+        if not normalized:
+            concepts_weights = concepts_weights / concepts_weights.sum()
+
+        class_attribution = (concepts_attribution[concepts_idx] * concepts_weights[:, None, None, None]).sum(dim=0, keepdim=True)
+
+        return class_attribution
     
-#     def comput_dist(self,
-#                     embeddings:torch.Tensor) -> torch.Tensor:
-#         concept_projs = self.posthoc_layer.compute_dist(embeddings)
-        
-#         return concept_projs
-    
-#     def forward_projs(self,
-#                       concept_projs:torch.Tensor) -> torch.Tensor:
-#         return self.posthoc_layer.forward_projs(concept_projs)
-    
-#     def output_as_logit(self, 
-#                         input_x:torch.Tensor) -> torch.Tensor:
-#         batch_X_normalized = self.normalizer(input_x)
-#         embeddings = self.backbone.encode_image(batch_X_normalized)
-#         concept_projs = self.posthoc_layer.compute_dist(embeddings)
-
-#         return self.posthoc_layer.forward_projs(concept_projs)
-    
-#     def output_as_class(self, 
-#                         input_x:torch.Tensor) -> torch.Tensor:
-#         batch_X_normalized = self.normalizer(input_x)
-#         embeddings = self.backbone.encode_image(batch_X_normalized)
-#         concept_projs = self.posthoc_layer.compute_dist(embeddings)
-
-#         return self.posthoc_layer.forward_projs(concept_projs).argmax(1)
-       
-#     def get_backbone(self):
-#         return self.backbone
-
-# CLIP VL-CBM
-class clip_cbm(CBM_Net):
-
-    TRAINABLE_COMPONENTS = ["classifier"]
-
-    def __init__(self, normalizer, 
-                 concept_bank:ConceptBank, 
-                 backbone:Union[open_clip_model_CLIP, clip_model_CLIP],
-                 num_of_classes:int=10
-                 ):
-        super().__init__()
-
-        self.concept_bank = concept_bank
-        self.normalizer = normalizer
-        self.backbone:Union[open_clip_model_CLIP, clip_model_CLIP] = backbone
-
-        self.CAV_layer = CAV(self.concept_bank.vectors, 
-                             self.concept_bank.intercepts, 
-                             self.concept_bank.norms,
-                             self.concept_bank.concept_names.copy())
-        for p in self.CAV_layer.parameters(): p.requires_grad=False
-        
-        self.num_of_concepts = self.concept_bank.concept_names.__len__()
-        self.num_of_classes = num_of_classes
-        
-        self.classifier = nn.Linear(self.num_of_concepts, self.num_of_classes)
-        
-    def train(self, mode=True):
-        for p in self.backbone.parameters(): p.requires_grad=not mode
-        super().train(mode)
-    
-    def set_weights(self, weights:torch.Tensor, bias:torch.Tensor):
-        self.classifier.weight.data = torch.tensor(weights).to(self.classifier.weight.device)
-        self.classifier.bias.data = torch.tensor(bias).to(self.classifier.weight.device)
-        return True
-
-    def state_dict(self):
-        return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}
-    
-    def get_backbone(self) -> open_clip_model_CLIP:
-        return self.backbone
-    
-    def classify(self, 
-                 batch_X:torch.Tensor) -> torch.Tensor:
-        return self.forward(batch_X=batch_X)
-    
-    def forward(self, 
-                batch_X:torch.Tensor) -> torch.Tensor:
-        concept_activations = self.encode_as_concepts(batch_X)
-
-        return self.classifier(concept_activations), concept_activations, None
-
-    def encode_as_embedding(self, 
-                        batch_X:torch.Tensor) -> torch.Tensor:
-        B, C, H, W = batch_X.size()
-        
-        if self.normalizer is not None:
-            batch_X = self.normalizer(batch_X)
-
-        visual_projection = self.backbone.encode_image(batch_X)
-
-        return visual_projection
-    
-    def encode_as_concepts(self, 
-                           batch_X:torch.Tensor) -> torch.Tensor:
-        visual_projection = self.encode_as_embedding(batch_X)
-        concept_activations = self.CAV_layer(visual_projection)
-
-        return concept_activations
-    
-    def compute_dist(self, 
-                    batch_X:torch.Tensor) -> torch.Tensor:
-        return self.encode_as_concepts(batch_X)
-
-    def forward_projs(self,
-                      concept_projs:torch.Tensor) -> torch.Tensor:
-        return self.classifier(concept_projs)
-    
-class robust_pcbm(clip_cbm):
-    
-    TRAINABLE_COMPONENTS = ["backbone"]
-
-    def __init__(self, normalizer, 
-                 concept_bank:ConceptBank, 
-                 backbone:Union[open_clip_model_CLIP, clip_model_CLIP],
-                 num_of_classes:int=10
-                 ):
-        super().__init__(normalizer, concept_bank, backbone, num_of_classes)
-        
-    def train(self, mode=True):
-        super().train(mode)
-        for p in self.backbone.parameters(): p.requires_grad=True
-        for p in self.classifier.parameters(): p.requires_grad=False
-        
-
-# Contrastive Semi-Supervised (CSS) VL-CBM
-class css_pcbm(CBM_Net):
-
-    TRAINABLE_COMPONENTS = ["concept_projection", 
-                           "classifier"]
-
-    def __init__(self, normalizer, 
-                 concept_bank:ConceptBank, 
-                 backbone:open_clip_model_CLIP,
-                 num_of_classes:int=10
-                 ):
-        super().__init__()
-
-        self.concept_bank = concept_bank
-        self.normalizer = normalizer
-        self.backbone:open_clip_model_CLIP = backbone
-        
-
-        assert hasattr(self.backbone.visual, "output_tokens")
-        self.backbone.visual.output_tokens = True
-        
-
-        self.CAV_layer = CAV(self.concept_bank.vectors, 
-                             self.concept_bank.intercepts, 
-                             self.concept_bank.norms,
-                             self.concept_bank.concept_names.copy())
-        self.num_of_concepts = self.concept_bank.concept_names.__len__()
-        self.num_of_classes = num_of_classes
-        
-        self.concept_projection = nn.Sequential(
-            nn.LayerNorm(768),
-            nn.Linear(768, self.num_of_concepts)
-        )
-        self.classifier = nn.Sequential(
-            nn.LayerNorm(self.num_of_concepts),
-            nn.Linear(self.num_of_concepts, self.num_of_classes),
-        )
-
-    def train(self, mode=True):
-        for p in self.backbone.parameters(): p.requires_grad=not mode
-        for p in self.CAV_layer.parameters(): p.requires_grad=not mode
-        super().train(mode)
-
-    def set_weights(self, weights:torch.Tensor, bias:torch.Tensor):
-        self.classifier[1].weight.data = torch.tensor(weights).to(self.classifier[1].weight.device)
-        self.classifier[1].bias.data = torch.tensor(bias).to(self.classifier[1].weight.device)
-        return True
-
-    def state_dict(self):
-        return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}
-    
-    def get_backbone(self) -> open_clip_model_CLIP:
-        return self.backbone
-    
-    def forward(self, image_pairs):
-        if image_pairs.shape.__len__() == 5:
-            bs, imgs, channels, h, w = image_pairs.shape
-            images = torch.reshape(image_pairs, 
-                                (bs*imgs, channels, h, w))
-        else:
-            images = image_pairs
-        images = self.normalizer(images)
-
-        visual_projection, visual_patches = self.backbone.encode_image(images)
-        concept_projections = self.concept_projection(torch.mean(visual_patches, 
-                                                                 dim=1))
-
-        concept_activations = self.CAV_layer(F.normalize(visual_projection, 
-                                                         dim=-1))
-        concepts = concept_activations + concept_projections
-        #     (bs*2,18)         (bs*2,10)
-        return self.classifier(concepts), F.sigmoid(concepts), None
-    
-    def direct_encode_as_concepts(self, 
-                           batch_X:torch.Tensor) -> torch.Tensor:
-        images = self.normalizer(batch_X)
-
-        visual_projection, _ = self.backbone.encode_image(images)
-
-        concept_activations = self.CAV_layer(F.normalize(visual_projection, 
-                                                         dim=-1))
-        concepts = concept_activations
-        #     (bs*2,18)
-        return F.sigmoid(concepts)
-    
-    def encode_as_concepts(self, 
-                           batch_X:torch.Tensor) -> torch.Tensor:
-        images = self.normalizer(batch_X)
-
-        visual_projection, visual_patches = self.backbone.encode_image(images)
-        concept_projections = self.concept_projection(torch.mean(visual_patches, 
-                                                                 dim=1))
-
-        concept_activations = self.CAV_layer(F.normalize(visual_projection, 
-                                                         dim=-1))
-        concepts = concept_activations + concept_projections
-        #     (bs*2,18) 
-        return F.sigmoid(concepts)
-
-        
-    def forward_projs(self,
-                      concept_projs:torch.Tensor) -> torch.Tensor:
-        return self.classifier(concept_projs)
 
 
 # Modified from https://github.com/billpsomas/simpool/blob/master/sp.py
@@ -548,408 +313,3 @@ class SimPool(nn.Module):
             return x.squeeze((1, 2)), attn.squeeze((1, 2))
         
         return x.squeeze((1, 2))
-
-# SimPooling Semi-Supervised (SPSS) VL-CBM
-class spss_pcbm(CBM_Net):
-
-    TRAINABLE_COMPONENTS = ["simpool", 
-                            "token_projection",
-                            "classifier"]
-
-    def __init__(self, normalizer, 
-                 concept_bank:ConceptBank, 
-                 backbone:open_clip_model_CLIP,
-                 concept_softmax:bool=False,
-                 num_of_classes:int=10
-                 ):
-        super().__init__()
-
-        self.concept_bank = concept_bank
-        self.normalizer = normalizer
-        self.backbone:open_clip_model_CLIP = backbone
-        self.concept_softmax = concept_softmax
-        self.embedding_size = self.backbone.visual.output_dim
-
-        assert hasattr(self.backbone.visual, "output_tokens")
-        self.backbone.visual.output_tokens = True
-        
-
-        self.cavs:torch.Tensor = self.concept_bank.vectors.detach().clone() # [18, D]
-        self.concept_names:list[str] = self.concept_bank.concept_names.copy()
-
-        self.n_concepts = self.cavs.shape[0]
-        self.num_of_concepts = self.concept_bank.concept_names.__len__()
-        self.num_of_classes = num_of_classes
-
-        self.simpool = SimPool(self.num_of_concepts, 
-                               num_heads=1, 
-                               qkv_bias=False, 
-                               qk_scale=None, 
-                               use_beta=True)
-
-        token_width = self.backbone.visual.proj.size(0)
-        
-        self.token_projection = nn.Linear(in_features=token_width, 
-                                        out_features=self.num_of_concepts)
-
-        self.classifier = nn.Sequential(
-            nn.LayerNorm(self.num_of_concepts),
-            nn.Linear(self.num_of_concepts, self.num_of_classes),
-        )
-
-    def get_expalainable_component(self):
-        return self.simpool
-
-    def train(self, mode=True):
-        for p in self.backbone.parameters(): p.requires_grad=not mode
-        super().train(mode)
-
-    def set_weights(self, weights:torch.Tensor, bias:torch.Tensor):
-        self.classifier[1].weight.data = torch.tensor(weights).to(self.classifier[1].weight.device)
-        self.classifier[1].bias.data = torch.tensor(bias).to(self.classifier[1].weight.device)
-        return True
-
-    def state_dict(self):
-        return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}
-    
-    def get_backbone(self) -> open_clip_model_CLIP:
-        return self.backbone
-    
-    def forward(self, input_X:torch.Tensor):
-        if input_X.size().__len__() == 5:
-            B, N, C, W, H = input_X.size()
-            images = torch.reshape(input_X, 
-                                (B * N, C, W, H))
-        else:
-            images = input_X
-        pooled_tokens, token_concepts = self.encode_as_concepts(images, return_token_concepts=True)
-        #     (bs*2,C)         (bs*2,Class)
-        return self.classifier(pooled_tokens), pooled_tokens, token_concepts
-    
-    def encode_as_concepts(self, 
-                           batch_X:torch.Tensor,
-                           return_token_concepts:bool=False,
-                           return_attn_map:bool=False) -> Tuple[torch.Tensor]:
-        B, C, H, W = batch_X.size()
-        images = self.normalizer(batch_X)
-
-        image_embedding, visual_patches = self.backbone.encode_image(images)
-        # W * H tokens + cls token x D1, cls token x D1 -> proj -> D2 == Embedding 
-        # 1x1 convolution
-        token_concepts = self.token_projection(visual_patches) # [B, W * H, D1] -> [B, W * H, C]
-
-        # [B, W * H, D] * [C, D]
-        if self.concept_softmax:
-            token_concepts = F.softmax(token_concepts, dim=2)
-
-        # prepare cavs as query
-        # image_embedding @ self.cavs
-        pooled_cavs = self.cavs.mean(1).unsqueeze(0).unsqueeze(0).expand((B, -1, -1)) # [C, D2]-> [B, 1, C]
-
-        
-        attn_map = None
-        if return_attn_map:                     # [B, W * H, C], [B, 1, C]
-            pooled_tokens, attn_map = self.simpool(token_concepts, pooled_cavs, return_attn_map=True) # [B, C]
-            _grid = int(np.round(np.sqrt(attn_map.size(-1))))
-            attn_map = attn_map.view(B, 1, _grid, _grid)
-        else:
-            pooled_tokens = self.simpool(token_concepts, pooled_cavs) # [B, C]
-
-        res_tuple = (pooled_tokens, )
-        if return_token_concepts:
-            res_tuple = res_tuple + (token_concepts, )
-        
-        if return_attn_map:
-            res_tuple = res_tuple + (attn_map, )
-        
-        return res_tuple
-    
-    def attribute_class(self,
-                  batch_X:torch.Tensor) -> torch.Tensor:
-        """
-            Args: 
-                batch_X: [B, C, W, H]
-                target: int/[B, 1]
-            Return:
-                attribution: [B, 1, _grid, _grid]
-        """
-        # [C] [B, 1, grid, grid]
-        _, attn_map = self.encode_as_concepts(batch_X, return_attn_map=True)
-        attn_map = F.interpolate(attn_map, batch_X.size()[-2:], mode="bicubic")
-
-        return attn_map
-    
-    def attribute(self,
-                  batch_X:torch.Tensor,
-                  target:Union[torch.Tensor|int], 
-                  additional_args:dict={}) -> torch.Tensor:
-        """
-            Args: 
-                batch_X: [B, C, W, H]
-                target: int/[B, 1]
-            Return:
-                attribution: [B, 1, _grid, _grid]
-        """
-        # [C] [B, grid * grid, C]
-        _, token_concepts = self.encode_as_concepts(batch_X, return_token_concepts=True)
-        B, N, C = token_concepts.size()
-
-        if isinstance(target, torch.Tensor):
-            # [B, grid * grid, 1]
-            expanded_target = target.unsqueeze(1).unsqueeze(1).expand(-1, N, -1) # [B, N, 1]
-            attribution = token_concepts.gather(dim=2, index=expanded_target) # [B, grid * grid, 1]
-        else:
-            # [1, grid * grid, C]
-            attribution = token_concepts[:, :, target:target+1] # [1, grid * grid, 1]
-        
-        # [B, grid * grid, 1] -> # [B, 1, grid, grid]
-        _grid = int(np.round(np.sqrt(N)))
-        attribution = attribution.permute((0, 2, 1)).view(B, 1, _grid, _grid)
-        return attribution
-    
-    def get_topK_concepts(self, K=5):
-        weight:torch.Tensor = self.classifier[1].weight.data  # 形状: (out_features, in_features)
-        top_values, top_indices = torch.topk(weight, k=K, dim=1)
-        top_values = top_values / torch.sum(top_values, dim=1, keepdim=True)
-        
-        return top_indices, top_values
-
-    def forward_projs(self,
-                      concept_projs:torch.Tensor) -> torch.Tensor:
-        return self.classifier(concept_projs)
-    
-# Locality Supervised (LS) VL-CBM
-class ls_pcbm(CBM_Net):
-
-    TRAINABLE_COMPONENTS = ["token_projection",
-                           "classifier"]
-
-    def __init__(self, normalizer, 
-                 concept_bank:ConceptBank, 
-                 backbone:open_clip_model_CLIP,
-                 gamma:float=1.25,
-                 num_of_classes:int=10
-                 ):
-        super().__init__()
-
-        self.concept_bank = concept_bank
-        self.normalizer = normalizer
-        self.backbone:open_clip_model_CLIP = backbone
-        self.embedding_size = self.backbone.visual.output_dim
-
-        assert hasattr(self.backbone.visual, "output_tokens")
-        self.backbone.visual.output_tokens = True
-        
-
-        # self.cavs:torch.Tensor = self.concept_bank.vectors # [18, D]
-        self.CAV_layer = CAV(self.concept_bank.vectors, 
-                        self.concept_bank.intercepts, 
-                        self.concept_bank.norms,
-                        self.concept_bank.concept_names.copy())
-        self.concept_names:list[str] = self.concept_bank.concept_names.copy()
-
-        self.n_concepts = self.concept_bank.vectors.shape[0]
-        self.num_of_concepts = self.concept_bank.concept_names.__len__()
-        self.num_of_classes = num_of_classes
-
-        token_width = self.backbone.visual.proj.size(0)
-        
-        self.token_projection = nn.Linear(in_features=token_width, 
-                                        out_features=self.embedding_size)
-
-        self.classifier = nn.Sequential(
-            nn.LayerNorm(self.num_of_concepts),
-            nn.Linear(self.num_of_concepts, self.num_of_classes),
-        )
-    
-    def train(self, mode=True):
-        for p in self.backbone.parameters(): p.requires_grad=not mode
-        for p in self.CAV_layer.parameters(): p.requires_grad=not mode
-        super().train(mode)
-
-    def set_weights(self, weights:torch.Tensor, bias:torch.Tensor):
-        self.classifier[1].weight.data = torch.tensor(weights).to(self.classifier[1].weight.device)
-        self.classifier[1].bias.data = torch.tensor(bias).to(self.classifier[1].weight.device)
-        return True
-
-    def state_dict(self):
-        return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}
-    
-    def get_backbone(self) -> open_clip_model_CLIP:
-        return self.backbone
-    
-    def forward(self, input_X:torch.Tensor):
-        if input_X.size().__len__() == 5:
-            B, N, C, W, H = input_X.size()
-            images = torch.reshape(input_X, 
-                                (B * N, C, W, H))
-        else:
-            images = input_X
-        pooled_concepts, token_concepts, token_labels = self.encode_as_concepts(images, return_token_concepts=True)
-        
-        #     (bs*2,C)         (bs*2,Class)
-        return pooled_concepts, self.classifier(pooled_concepts), token_concepts
-    
-    def encode_as_concepts(self, 
-                           batch_X:torch.Tensor,
-                           return_token_concepts:bool=False) -> torch.Tensor:
-        B, C, W, H = batch_X.size()
-        images = self.normalizer(batch_X)
-
-        _, visual_patches = self.backbone.encode_image(images)
-        
-        # 1x1 convolution
-        token_embedding:torch.Tensor = self.token_projection(visual_patches) # [B, W * H, D] -> [B, W * H, C]
-        token_concepts:torch.Tensor = self.CAV_layer(token_embedding.view(visual_patches.size(0) * visual_patches.size(1), -1))
-        
-        token_concepts = token_concepts.view(visual_patches.size(0), visual_patches.size(1), -1) # [B, W * H, Score]
-        token_labels = token_concepts.argmax(2)
-        if return_token_concepts:
-            return token_concepts.max(1)[0], token_concepts, token_labels
-        return token_concepts.max(1)[0]
-
-    def forward_projs(self,
-                      concept_projs:torch.Tensor) -> torch.Tensor:
-        return self.classifier(concept_projs)
-
-from open_clip.transformer import ResidualAttentionBlock
-
-# SimPooling Masked Semi-Supervised (SPSS) VL-CBM
-class spmss_pcbm(CBM_Net):
-
-    TRAINABLE_COMPONENTS = ["simpool", 
-                            # "token_attention", 
-                            "token_projection",
-                            "classifier"]
-
-    def __init__(self, normalizer, 
-                 concept_bank:ConceptBank, 
-                 backbone:open_clip_model_CLIP,
-                 concept_softmax:bool=False,
-                 num_of_classes:int=10
-                 ):
-        super().__init__()
-
-        self.concept_bank = concept_bank
-        self.normalizer = normalizer
-        self.backbone:open_clip_model_CLIP = backbone
-        self.concept_softmax = concept_softmax
-        self.embedding_size = self.backbone.visual.output_dim
-
-        assert hasattr(self.backbone.visual, "output_tokens")
-        self.backbone.visual.output_tokens = True
-        
-
-        self.cavs:torch.Tensor = self.concept_bank.vectors.detach().clone() # [18, D]
-        self.concept_names:list[str] = self.concept_bank.concept_names.copy()
-
-        self.n_concepts = self.cavs.shape[0]
-        self.num_of_concepts = self.concept_bank.concept_names.__len__()
-        self.num_of_classes = num_of_classes
-
-        self.simpool = SimPool(self.num_of_concepts, 
-                               num_heads=1, 
-                               qkv_bias=False, 
-                               qk_scale=None, 
-                               use_beta=True)
-
-        token_width = self.backbone.get_submodule("visual").proj.size(0)
-        n_head = self.backbone.get_submodule("visual.transformer.resblocks.0.attn").num_heads
-        self.token_attention = ResidualAttentionBlock(d_model = token_width, 
-                                                      n_head = n_head,
-                                                      batch_first = True)
-        
-        self.token_projection = nn.Linear(in_features=token_width, 
-                                        out_features=self.num_of_concepts)
-
-        self.classifier = nn.Sequential(
-            nn.LayerNorm(self.num_of_concepts),
-            nn.Linear(self.num_of_concepts, self.num_of_classes),
-        )
-
-    def get_expalainable_component(self):
-        return self.simpool
-
-    def train(self, mode=True):
-        for p in self.backbone.parameters(): p.requires_grad=not mode
-        super().train(mode)
-
-    def set_weights(self, weights:torch.Tensor, bias:torch.Tensor):
-        self.classifier[1].weight.data = torch.tensor(weights).to(self.classifier[1].weight.device)
-        self.classifier[1].bias.data = torch.tensor(bias).to(self.classifier[1].weight.device)
-        return True
-
-    def state_dict(self):
-        return {k:v for k, v in super().state_dict().items() if k.split(".")[0] in self.TRAINABLE_COMPONENTS}
-    
-    def get_backbone(self) -> open_clip_model_CLIP:
-        return self.backbone
-    
-    def forward(self, input_X:torch.Tensor):
-        if input_X.size().__len__() == 5:
-            B, N, C, W, H = input_X.size()
-            images = torch.reshape(input_X, 
-                                (B * N, C, W, H))
-        else:
-            images = input_X
-        pooled_tokens, token_concepts = self.encode_as_concepts(images, return_token_concepts=True)
-        #     (bs*2,C)         (bs*2,Class)
-        return self.classifier(pooled_tokens), pooled_tokens, token_concepts
-    
-    def encode_as_concepts(self, 
-                           batch_X:torch.Tensor,
-                           return_token_concepts:bool=False) -> torch.Tensor:
-        B, C, W, H = batch_X.size()
-        images = self.normalizer(batch_X)
-
-        _, visual_patches = self.backbone.encode_image(images)
-        
-        # mixed_concepts = self.token_attention(visual_patches) # [B, W * H, D] -> [B, W * H, D]
-
-        # 1x1 convolution
-        token_concepts = self.token_projection(visual_patches) # [B, W * H, D] -> [B, W * H, C]
-
-        if self.concept_softmax:
-            token_concepts = F.softmax(token_concepts, dim=2)
-
-        # prepare cavs as query
-        pooled_cavs = self.cavs.mean(1).unsqueeze(0).unsqueeze(0).expand((B, -1, -1)) # [C, D]-> [B, 1, C]
-
-        pooled_tokens = self.simpool(token_concepts, pooled_cavs) # [B, C]
-
-        if return_token_concepts:
-            return pooled_tokens, token_concepts
-        return pooled_tokens
-    
-    def attribute(self,
-                  batch_X:torch.Tensor,
-                  target:Union[torch.Tensor|int], 
-                  additional_args:dict={}) -> torch.Tensor:
-        """
-            Args: 
-                batch_X: [B, C, W, H]
-                target: int/[B, 1]
-            Return:
-                attribution: [B, 1, _grid, _grid]
-        """
-        # [C] [B, grid * grid, C]
-        _, token_concepts = self.encode_as_concepts(batch_X, return_token_concepts=True)
-        B, N, C = token_concepts.size()
-
-        if isinstance(target, torch.Tensor):
-            # [B, grid * grid, 1]
-            expanded_target = target.unsqueeze(1).unsqueeze(1).expand(-1, N, -1) # [B, N, 1]
-            attribution = token_concepts.gather(dim=2, index=expanded_target) # [B, grid * grid, 1]
-        else:
-            # [1, grid * grid, C]
-            attribution = token_concepts[:, :, target:target+1] # [1, grid * grid, 1]
-        
-        # [B, grid * grid, 1] -> # [B, 1, grid, grid]
-        _grid = int(np.round(np.sqrt(N)))
-        attribution = attribution.permute((0, 2, 1)).view(B, 1, _grid, _grid)
-
-        return attribution
-
-    def forward_projs(self,
-                      concept_projs:torch.Tensor) -> torch.Tensor:
-        return self.classifier(concept_projs)

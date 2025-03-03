@@ -160,37 +160,27 @@ def main(args):
     model.eval()
 
     # Prepare explaining algorithm
-    explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
-                                                    args.explain_method)(forward_func=model.encode_as_concepts,
-                                                                        model = model)
-    explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
+    # explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
+    #                                                 args.explain_method)(forward_func=model.encode_as_concepts,
+    #                                                                     model = model)
+    # explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
     # attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
-    explain_concept:torch.Tensor = getattr(select_concept_func, args.backbone_name.split(":")[0])(args, concept_bank,
-                                                                                                  model_context,
-                                                                                                  dataset,
-                                                                                                  explain_algorithm,
-                                                                                                  explain_algorithm_forward,)
+    # explain_concept:torch.Tensor = getattr(select_concept_func, args.backbone_name.split(":")[0])(args, concept_bank,
+    #                                                                                               model_context,
+    #                                                                                               dataset,
+    #                                                                                               explain_algorithm,
+    #                                                                                               explain_algorithm_forward,)
     val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, args.device)
     args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
 
     # Start Rival attrbution alignment evaluation
-    res_dict = interpret_all_concept(args, model,
-                            dataset.test_loader, 
-                            partial(explain_algorithm_forward, explain_algorithm = explain_algorithm),
-                            explain_concept)
-    
-    for metric in ["iou", "dice", "prec_iou"]:
-        attrwise_metric = res_dict[metric]
-        torch.save(attrwise_metric.detach().cpu(), os.path.join(args.save_path, f"{metric}_info.pt"))
-        args.logger.info(f"--------{metric}\n\n")
-        for label, class_name in enumerate(RIVAL10_constants._ALL_CLASSNAMES):
-            args.logger.info(f"{class_name}:")
-            for name, iou in zip(concept_bank.concept_info.concept_names, attrwise_metric[label]):
-                args.logger.info(f" - {name}: {iou:.4f}")
-
-        args.logger.info(f"totall ({attrwise_metric.nanmean():.4f}):")
-        for ind, concepts_name in enumerate(concept_bank.concept_info.concept_names):
-            args.logger.info(f" - {concepts_name}: {attrwise_metric[:, ind].nanmean():.4f}")
+        ###Evalute attribution alignment
+    rival10_dataset = load_dataset(dataset_configure(
+        dataset = "rival10_full",
+        batch_size = args.batch_size,
+        num_workers = args.num_workers
+    ), backbone.preprocess)
+    eval_attribution_alignment(args, model, rival10_dataset, concept_bank, args.explain_method)
 
 if __name__ == "__main__":
     args = config()

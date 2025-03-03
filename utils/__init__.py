@@ -1,5 +1,9 @@
 from .constants import *
 from .model_utils import *
+from .clip_cbm import *
+from .ccs_cbm import *
+from .spss_cbm import *
+
 from .data_utils import *
 from .loss_utils import *
 from .attack_utils import *
