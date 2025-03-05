@@ -11,8 +11,8 @@ python spss_vl_cbm_train.py --backbone-name="open_clip:ViT-B-16" \
     --lambda1="$1" \
     --lambda2="$2" \
     --lambda3="$3" \
-    --lambda4="$4" \
-    --not-save-ckpt
+    --lambda4="$4"
+    $5
 
 # python spss_vl_cbm_train.py --backbone-name="open_clip:ViT-B-16" \
 #     --backbone-ckpt="laion2b-s34b-b88K" \
