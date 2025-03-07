@@ -10,7 +10,7 @@ from pcbm.models import CAV
 
 from typing import Tuple, Callable, Union, Optional
 
-from .model_utils import CBM_Net
+from .model_utils import CBM_Net, ResNetBottom
 
 # Contrastive Semi-Supervised (CSS) VL-CBM
 class css_pcbm(CBM_Net):
@@ -20,20 +20,24 @@ class css_pcbm(CBM_Net):
 
     def __init__(self, normalizer, 
                  concept_bank:ConceptBank, 
-                 backbone:open_clip_model_CLIP,
+                 backbone:Union[open_clip_model_CLIP, ResNetBottom],
                  num_of_classes:int=10
                  ):
         super().__init__()
 
         self.concept_bank = concept_bank
         self.normalizer = normalizer
-        self.backbone:open_clip_model_CLIP = backbone
+        self.backbone:Union[open_clip_model_CLIP, ResNetBottom] = backbone
         
-
-        assert hasattr(self.backbone.visual, "output_tokens")
-        self.backbone.visual.output_tokens = True
+        if isinstance(self.backbone, open_clip_model_CLIP):
+            self.embedding_size = self.backbone.visual.output_dim
+            assert hasattr(self.backbone.visual, "output_tokens")
+            self.backbone.visual.output_tokens = True
+            token_width = self.backbone.visual.proj.size(0)
+        elif isinstance(self.backbone, ResNetBottom):
+            self.embedding_size = token_width = self.backbone.classifier.in_features
+            self.backbone.output_visual_patches = True
         
-
         self.CAV_layer = CAV(self.concept_bank.vectors, 
                              self.concept_bank.intercepts, 
                              self.concept_bank.norms,
@@ -42,8 +46,8 @@ class css_pcbm(CBM_Net):
         self.num_of_classes = num_of_classes
         
         self.concept_projection = nn.Sequential(
-            nn.LayerNorm(768),
-            nn.Linear(768, self.num_of_concepts)
+            nn.LayerNorm(token_width),
+            nn.Linear(token_width, self.num_of_concepts)
         )
         self.classifier = nn.Sequential(
             nn.LayerNorm(self.num_of_concepts),
@@ -85,6 +89,10 @@ class css_pcbm(CBM_Net):
         images = self.normalizer(images)
 
         visual_projection, visual_patches = self.backbone.encode_image(images)
+        
+        if visual_patches.shape.__len__() == 4:
+            visual_patches = visual_patches.view(visual_patches.size(0), -1, visual_patches.size(-1))
+        
         concept_projections = self.concept_projection(torch.mean(visual_patches, 
                                                                  dim=1))
 
@@ -108,9 +116,19 @@ class css_pcbm(CBM_Net):
     
     def encode_as_concepts(self, 
                            batch_X:torch.Tensor) -> torch.Tensor:
-        images = self.normalizer(batch_X)
+        if batch_X.shape.__len__() == 5:
+            bs, imgs, channels, h, w = batch_X.shape
+            images = torch.reshape(batch_X, 
+                                (bs*imgs, channels, h, w))
+        else:
+            images = batch_X
+        images = self.normalizer(images)
 
         visual_projection, visual_patches = self.backbone.encode_image(images)
+        
+        if visual_patches.shape.__len__() == 4:
+            visual_patches = visual_patches.view(visual_patches.size(0), -1, visual_patches.size(-1))
+        
         concept_projections = self.concept_projection(torch.mean(visual_patches, 
                                                                  dim=1))
 

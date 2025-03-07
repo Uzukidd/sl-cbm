@@ -1,0 +1,11 @@
+cd ../../..
+python -m pdb -c continue attr_align_evalutaion.py --dataset="spss_cub"\
+            --backbone-ckpt="/home/ksas/Public/model_zoo/resnet_cub"\
+            --backbone-name="resnet18_cub"\
+            --concept-bank="/home/ksas/Public/datasets/concept_banks/cub_resnet18_cub_0.1_100.pkl"\
+            --pcbm-arch="pcbm"\
+            --pcbm-ckpt="data/ckpt/CUB/vanilla_pcbm_cub__resnet18_cub__cub_resnet18_cub_0__lam:0.0002__alpha:0.99__seed:42.ckpt"\
+            --explain-method="layer_grad_cam"\
+            --universal-seed="24"\
+            --exp-name="PCBM_RN18_CUB"\
+            --batch-size=8

@@ -21,6 +21,9 @@ import torch.nn as nn
 from torchvision import datasets
 from torch.utils.data  import DataLoader, Dataset, Sampler
 import torchvision.transforms as transforms
+from torch.utils.data import DataLoader, Dataset
+from torch.utils.data._utils.collate import default_collate
+import torch
 
 from pcbm.learn_concepts_multimodal import *
 from pcbm.concepts import ConceptBank
@@ -154,7 +157,60 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
         print(len(classes), "num classes for cub")
         print(len(train_loader.dataset), "training set size")
         print(len(test_loader.dataset), "test set size")
+    
+    elif args.dataset == "css_cub":
+        from utils import CSS_CUB_Dataset
+        num_classes = 200
+        TRAIN_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "train.pkl")
+        TEST_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "test.pkl")
+        if target_class is not None:
+            raise NotImplementedError
         
+        train_dataset = CSS_CUB_Dataset(split="train",pkl_paths=TRAIN_PKL, true_batch_size=args.batch_size, 
+                                          percentage_of_concept_labels_for_training=0.01, 
+                                          transform=None)
+        test_dataset = CSS_CUB_Dataset(split="test",pkl_paths=TRAIN_PKL, true_batch_size=args.batch_size, 
+                                         percentage_of_concept_labels_for_training=0.0, 
+                                         transform=None)
+        
+        train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=16)
+        test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=16)
+
+        classes = open(os.path.join(dataset_constants.CUB_DATA_DIR, "classes.txt")).readlines()
+        classes = [a.split(".")[1].strip() for a in classes]
+        class_to_idx = {c: i for (i,c) in enumerate(classes)}
+        idx_to_class = {i: classes[i] for i in range(num_classes)}
+        classes = [classes[i] for i in range(num_classes)]
+        print(len(classes), "num classes for cub")
+        print(len(train_loader.dataset), "training set size")
+        print(len(test_loader.dataset), "test set size")
+    
+        
+    elif args.dataset == "spss_cub":
+        from pcbm.data.cub import load_cub_data
+        from torchvision import transforms
+        num_classes = 200
+        TRAIN_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "train.pkl")
+        TEST_PKL = os.path.join(dataset_constants.CUB_PROCESSED_DIR, "test.pkl")
+        if target_class is not None:
+            raise NotImplementedError
+        
+        trainset, train_loader = load_cub_data([TRAIN_PKL], use_attr=True, no_img=False, 
+            batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_constants.CUB_DATA_DIR, resol=224, normalizer=None,
+            n_classes=num_classes, resampling=True)
+
+        testset, test_loader = load_cub_data([TEST_PKL], use_attr=True, no_img=False, 
+                batch_size=args.batch_size, uncertain_label=False, image_dir=dataset_constants.CUB_DATA_DIR, resol=224, normalizer=None,
+                n_classes=num_classes, resampling=True)
+
+        classes = open(os.path.join(dataset_constants.CUB_DATA_DIR, "classes.txt")).readlines()
+        classes = [a.split(".")[1].strip() for a in classes]
+        class_to_idx = {c: i for (i,c) in enumerate(classes)}
+        idx_to_class = {i: classes[i] for i in range(num_classes)}
+        classes = [classes[i] for i in range(num_classes)]
+        print(len(classes), "num classes for cub")
+        print(len(train_loader.dataset), "training set size")
+        print(len(test_loader.dataset), "test set size")
 
     elif args.dataset == "ham10000":
         raise NotImplementedError
@@ -403,59 +459,46 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
                         model_context.concept_bank, 
                         model_context.backbone,
                         num_of_classes)
-        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
-            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
-            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
-        model.to(args.device)
+        
     elif args.pcbm_arch == "robust_pcbm":
         model = robust_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
                         model_context.backbone,
                         num_of_classes)
-        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
-            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
-            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
-        model.to(args.device)
+
     elif args.pcbm_arch == "css_pcbm":
         model = css_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
                         model_context.backbone,
                         num_of_classes)
-        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
-            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
-            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
-        model.to(args.device)
+
     elif args.pcbm_arch == "spss_pcbm":
         model = spss_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
                         model_context.backbone,
                         False,
                         num_of_classes)
-        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
-            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
-            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
-        model.to(args.device)
+
     elif args.pcbm_arch == "spmss_pcbm":
         model = spmss_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
                         model_context.backbone,
                         False,
                         num_of_classes)
-        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
-            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
-            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
-        model.to(args.device)
+
     elif args.pcbm_arch == "ls_pcbm":
         model = ls_pcbm(model_context.normalizer, 
                         model_context.concept_bank, 
                         model_context.backbone,
                         num_of_classes)
-        if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt):
-            model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
-            print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
-        model.to(args.device)
+
     else:
         raise NotImplementedError
+    
+    if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt) and os.path.isfile(args.pcbm_ckpt):
+        model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
+        print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
+    model.to(args.device)
     
     return model 
 

@@ -2,6 +2,7 @@
 test_tap.py
 data/*
 outputs/*
+ref/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

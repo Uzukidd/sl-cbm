@@ -49,6 +49,7 @@ def config():
     parser.add_argument("--num-workers", default=4, type=int)
     
     parser.add_argument("--lr", default=3e-4, type=float)
+    parser.add_argument("--epoch", default=5, type=int)
 
     parser.add_argument("--explain-method", type=str)
     parser.add_argument('--evaluate', action='store_true')
@@ -85,7 +86,7 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, regular_loss_f
         # stack the labels along batch dimension (no longer need to be in pairs)
         if class_labels.size().__len__() == 2:
             class_labels = torch.reshape(class_labels,(class_labels.shape[0]*2,1)).squeeze()
-            concept_labels = torch.reshape(concept_labels,(concept_labels.shape[0]*2,18))
+            concept_labels = torch.reshape(concept_labels,(concept_labels.shape[0]*2, concept_labels.shape[-1]))
             use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
 
         #Reseting Gradients
@@ -163,7 +164,7 @@ def val_one_epoch(val_data_loader, model, loss_fn, device):
 
             # stack the labels along batch dimension (no longer need to be in pairs)
             class_labels = torch.reshape(class_labels,(class_labels.shape[0]*2,1)).squeeze()
-            concept_labels = torch.reshape(concept_labels,(concept_labels.shape[0]*2,18))
+            concept_labels = torch.reshape(concept_labels,(concept_labels.shape[0]*2, concept_labels.shape[-1]))
             use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
 
             #Forward
@@ -207,7 +208,7 @@ def main(args:argparse.Namespace):
         args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
         return
 
-    for epoch in range(5):
+    for epoch in range(args.epoch):
         begin = time.time()
 
         ###Training
@@ -226,14 +227,14 @@ def main(args:argparse.Namespace):
         args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
         args.logger.info('\t Time per epoch (in mins) = %d %s', round((time.time()-begin)/60,2),'\n\n')
     
-    ###Evalute attribution alignment
-    rival10_dataset = load_dataset(dataset_configure(
-        dataset = "rival10_full",
-        batch_size = args.batch_size,
-        num_workers = args.num_workers
-    ), backbone.preprocess)
-    eval_attribution_alignment(args, model, rival10_dataset, concept_bank, args.explain_method)
-    
+    eval_model_explainability(
+        args,
+        model,
+        backbone.preprocess,
+        dataset,
+        concept_bank,
+        args.explain_method,
+    )    
 if __name__ == "__main__":
     args = config()
     args.save_path = os.path.join("./outputs", args.exp_name)

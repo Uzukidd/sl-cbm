@@ -158,29 +158,19 @@ def main(args):
     set_random_seed(args.universal_seed)
     concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
     model.eval()
-
-    # Prepare explaining algorithm
-    # explain_algorithm:GradientAttribution = getattr(model_explain_algorithm_factory, 
-    #                                                 args.explain_method)(forward_func=model.encode_as_concepts,
-    #                                                                     model = model)
-    # explain_algorithm_forward:Callable = getattr(model_explain_algorithm_forward, args.explain_method)
-    # attribution_pooling:Callable[..., torch.Tensor] = getattr(attribution_pooling_forward, args.concept_pooling)
-    # explain_concept:torch.Tensor = getattr(select_concept_func, args.backbone_name.split(":")[0])(args, concept_bank,
-    #                                                                                               model_context,
-    #                                                                                               dataset,
-    #                                                                                               explain_algorithm,
-    #                                                                                               explain_algorithm_forward,)
+    
     val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, args.device)
     args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
 
     # Start Rival attrbution alignment evaluation
-        ###Evalute attribution alignment
-    rival10_dataset = load_dataset(dataset_configure(
-        dataset = "rival10_full",
-        batch_size = args.batch_size,
-        num_workers = args.num_workers
-    ), backbone.preprocess)
-    eval_attribution_alignment(args, model, rival10_dataset, concept_bank, args.explain_method)
+    eval_model_explainability(
+        args,
+        model,
+        backbone.preprocess,
+        dataset,
+        concept_bank,
+        args.explain_method,
+    )
 
 if __name__ == "__main__":
     args = config()
@@ -196,6 +186,5 @@ if __name__ == "__main__":
 
     if not torch.cuda.is_available():
         args.device = "cpu"
-        print(f"GPU devices failed. Change to {args.device}")
+        args.logger.info(f"GPU devices failed. Change to {args.device}")
     main(args)
-    

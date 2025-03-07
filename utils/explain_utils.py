@@ -131,9 +131,9 @@ class model_explain_algorithm_factory:
             
         elif isinstance(backbone, ResNetBottom):
             layer_grad_cam = LayerGradCam(forward_func,
-                                          backbone.get_submodule("features.0.stage4"))
+                                          backbone.get_submodule("features.stage4"))
             # layer_grad_cam = LayerGradCam(posthoc_concept_net,
-            #                               backbone.get_submodule("features.0.stage4.unit2.body.conv2.conv"))
+            #                               backbone.get_submodule("features.stage4.unit2.body.conv2.conv"))
         else:
             raise NotImplementedError
         
@@ -393,48 +393,3 @@ class CausalMetric(nn.Module):
                 start[r, :, coords] = finish[r, :, coords]
                 start = start.view(img_batch.size())
         return scores
-
-
-# def show_mask(mask):
-#     import matplotlib.pyplot as plt
-#     mask =  mask.permute(1, 2, 0).detach().cpu().numpy()
-
-#     plt.imshow(mask)
-#     plt.axis('off')
-#     plt.show()
-
-def attribution_iou(batch_attribution:torch.Tensor, batch_attr_mask:torch.Tensor, eps=1e-10, vis:bool=False, ind_X:torch.Tensor=None):
-    """
-        args:
-            batch_attribution: [B, ...] (non-binarized/non-positive)
-            batch_attr_mask: [B, ...] (non-binarized/non-positive)
-    """
-    eps=1e-10
-    def binarize(m):
-        m = m.clone()
-        m[torch.isnan(m)] = 0
-
-        max_val = torch.amax(m, dim=(1, 2, 3)).view(-1, 1, 1, 1)
-        max_val[max_val < eps] = eps
-        m = m / max_val
-        m[m>0.5] = 1
-        m[m<0.5] = 0
-        return m
-
-    
-    binarized_batch_attribution = torch.maximum(batch_attribution, 
-                                                batch_attribution.new_zeros(batch_attribution.size()))
-    binarized_batch_attribution = binarize(binarized_batch_attribution)
-
-    binarized_batch_attr_mask = batch_attr_mask
-    # if vis:
-    #     show_mask(binarized_batch_attribution[1])
-    #     show_mask(binarized_batch_attr_mask[1])
-    intersection = binarized_batch_attribution * binarized_batch_attr_mask
-    intersection = torch.sum(intersection, dim=(1, 2, 3))
-
-    union = torch.sum((binarized_batch_attribution + binarized_batch_attr_mask) > 0, dim=(1, 2, 3))
-
-    dice = (2 * intersection + eps) / (union + intersection + eps)
-    iou = (intersection + eps) / (union + eps)
-    return iou.detach(), dice.detach()

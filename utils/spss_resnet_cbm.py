@@ -11,18 +11,18 @@ from pcbm.models import CAV
 
 from typing import Tuple, Callable, Union, Optional
 
-from .model_utils import CBM_Net, SimPool, ResNetBottom
+from .model_utils import CBM_Net, SimPool
 
 
 # SimPooling Semi-Supervised (SPSS) VL-CBM
-class spss_pcbm(CBM_Net):
+class spssr_resnet_pcbm(CBM_Net):
     TRAINABLE_COMPONENTS = ["simpool", "token_projection", "classifier"]
 
     def __init__(
         self,
         normalizer,
         concept_bank: ConceptBank,
-        backbone: Union[open_clip_model_CLIP, ResNetBottom],
+        backbone: open_clip_model_CLIP,
         concept_softmax: bool = False,
         num_of_classes: int = 10,
     ):
@@ -30,9 +30,12 @@ class spss_pcbm(CBM_Net):
 
         self.concept_bank = concept_bank
         self.normalizer = normalizer
-        self.backbone: Union[open_clip_model_CLIP, ResNetBottom] = backbone
+        self.backbone: open_clip_model_CLIP = backbone
         self.concept_softmax = concept_softmax
-        
+        self.embedding_size = self.backbone.visual.output_dim
+
+        assert hasattr(self.backbone.visual, "output_tokens")
+        self.backbone.visual.output_tokens = True
 
         self.cavs: torch.Tensor = self.concept_bank.vectors.detach().clone()  # [18, D]
         self.concept_names: list[str] = self.concept_bank.concept_names.copy()
@@ -55,16 +58,9 @@ class spss_pcbm(CBM_Net):
             concept_bank.norms,
             concept_bank.concept_names.copy(),
         )
-        
-        if isinstance(self.backbone, open_clip_model_CLIP):
-            self.embedding_size = self.backbone.visual.output_dim
-            assert hasattr(self.backbone.visual, "output_tokens")
-            self.backbone.visual.output_tokens = True
-            token_width = self.backbone.visual.proj.size(0)
-        elif isinstance(self.backbone, ResNetBottom):
-            self.embedding_size = token_width = self.backbone.classifier.in_features
-            self.backbone.output_visual_patches = True
-            
+
+        token_width = self.backbone.visual.proj.size(0)
+
         self.token_projection = nn.Linear(
             in_features=token_width, out_features=self.num_of_concepts
         )
@@ -213,9 +209,6 @@ class spss_pcbm(CBM_Net):
         """
         # [C] [B, grid * grid, C]
         _, token_concepts = self.encode_as_concepts(batch_X, return_token_concepts=True)
-        
-        if token_concepts.size().__len__() == 4:
-            token_concepts = token_concepts.view(token_concepts.size(0), -1, token_concepts.size(-1))
         B, N, C = token_concepts.size()
 
         if isinstance(target, torch.Tensor):

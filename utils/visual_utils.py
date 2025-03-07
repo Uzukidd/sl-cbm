@@ -42,14 +42,18 @@ def getAttMap(img, attn_map, blur=True):
         return x
 
     if blur:
-        attn_map = filters.gaussian_filter(attn_map, 0.02*max(img.shape[:2]))
+        attn_map = filters.gaussian_filter(attn_map, 0.02*max(attn_map.shape[:2]))
     # pos_mask = attn_map <= 0
     attn_map = normalize(attn_map)
     # attn_map[pos_mask] = 0
     cmap = plt.get_cmap('jet')
     attn_map_c = np.delete(cmap(attn_map), 3, 2)
-    attn_map = 1*(1-attn_map**0.7).reshape(attn_map.shape + (1,))*img + \
-            (attn_map**0.7).reshape(attn_map.shape+(1,)) * attn_map_c
+
+    if img is not None:
+        attn_map = 1*(1-attn_map**0.7).reshape(attn_map.shape + (1,))*img + \
+                (attn_map**0.7).reshape(attn_map.shape+(1,)) * attn_map_c
+    else:
+        attn_map = attn_map_c
     return attn_map
 
 def viz_attn(batch_X:torch.Tensor, attributions:torch.Tensor, blur=True, prefix:str="", save_to:str=None):

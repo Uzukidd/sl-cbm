@@ -73,8 +73,8 @@ class ss_concept_loss(nn.Module):
 
         classification_loss = self.ce_loss(class_logits, class_label)
 
-        normalized_predicted_concepts = self.scale * predicted_concepts * use_concept_labels.unsqueeze(-1).expand(-1,18)
-        normalized_concept_labels = self.scale * concept_label * use_concept_labels.unsqueeze(-1).expand(-1,18)
+        normalized_predicted_concepts = self.scale * predicted_concepts * use_concept_labels.unsqueeze(-1).expand(-1, predicted_concepts.size(-1))
+        normalized_concept_labels = self.scale * concept_label * use_concept_labels.unsqueeze(-1).expand(-1, concept_label.size(-1))
         concept_loss = self.l1_loss(normalized_predicted_concepts, normalized_concept_labels)
 
         return classification_loss, concept_loss
