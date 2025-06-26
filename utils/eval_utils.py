@@ -105,6 +105,7 @@ class attribution_metric:
         concept_name: list[str],
         full_text: bool = False,
         latex: bool = False,
+        sep:str = "",
     ) -> str:
         totall_metric = {}
         all_metric = {}
@@ -119,9 +120,9 @@ class attribution_metric:
         formatted_str = None
 
         if latex:
-            metric_template = "{name:16}\t{iou:.2f} &\t{dice:.2f} &\t{prec_iou:.2f}\n"
-            formatted_str = metric_template.format(
-                name=self.name, **{k: t for k, t in all_metric.items()}
+            metric_template = "\t{iou:.2f}{sep}\t{dice:.2f}{sep}\t{prec_iou:.2f}{sep}"
+            formatted_str = metric_template.format(sep = sep,
+                **{k: t * 100 for k, t in all_metric.items()}
             )
         else:
             header = "\t\t\tIoU\tDice\tPrecIoU\n"
@@ -135,7 +136,7 @@ class attribution_metric:
                 )
 
             formatted_str += metric_template.format(
-                name="Totall", **{k: t for k, t in all_metric.items()}
+                name="Totall", **{k: t * 100 for k, t in all_metric.items()}
             )
 
         return formatted_str
@@ -185,7 +186,7 @@ class class_attribution_metric(attribution_metric):
         }
 
     def format_output(
-        self, classes_name: list[str], full_text: bool = False, latex: bool = False
+        self, classes_name: list[str], full_text: bool = False, latex: bool = False, sep:str = "",
     ) -> str:
         totall_metric = {}
         all_metric = {}
@@ -200,9 +201,9 @@ class class_attribution_metric(attribution_metric):
         formatted_str = None
 
         if latex:
-            metric_template = "{name:16}\t{iou:.2f} &\t{dice:.2f} &\t{prec_iou:.2f}\n"
-            formatted_str = metric_template.format(
-                name=self.name, **{k: t for k, t in all_metric.items()}
+            metric_template = "\t{iou:.2f}{sep}\t{dice:.2f}{sep}\t{prec_iou:.2f}{sep}"
+            formatted_str = metric_template.format(sep = sep,
+                **{k: t * 100 for k, t in all_metric.items()}
             )
         else:
             header = "\t\t\tIoU\tDice\tPrecIoU\n"
@@ -249,7 +250,7 @@ def attribution_iou(
     intersection = batch_attribution * batch_attr_mask
     intersection = torch.sum(intersection, dim=(1, 2, 3))
 
-    union = torch.sum(torch.max(batch_attribution, batch_attribution), dim=(1, 2, 3))
+    union = torch.sum(torch.max(batch_attribution, batch_attr_mask), dim=(1, 2, 3))
     attribution_area = torch.sum(batch_attribution, dim=(1, 2, 3))
 
     dice = (2 * intersection + eps) / (union + intersection + eps)
@@ -310,6 +311,25 @@ def collect_class_attribution(
 
     return weighted_attribution
 
+def save_topK_image(
+    ind_class_name: str,
+    ind_X: torch.Tensor,
+    attribution: torch.Tensor,
+    ind_attr_masks: torch.Tensor,
+    prefix: str,
+    save_to: str,
+):
+    if ind_class_name in RIVAL10_constants._KEY_FEATURES:
+        for attr_name in RIVAL10_constants._KEY_FEATURES[ind_class_name]:
+            attr_label = RIVAL10_constants._ALL_ATTRS.index(attr_name)
+            viz_attn_only(
+                ind_X,
+                attribution,
+                ind_attr_masks,
+                attr_label,
+                f"{ind_class_name}-{attr_name}-{prefix}",
+                save_to,
+            )
 
 def save_key_image(
     ind_class_name: str,
@@ -386,6 +406,7 @@ def interpret_all_concept(
     #     }
 
     # Assign saving path
+    topK_save_to = os.path.join(args.save_path, "images", "topK")
     concept_save_to = os.path.join(args.save_path, "images", "concept")
     class_save_to = os.path.join(args.save_path, "images", "class")
 
@@ -486,7 +507,7 @@ def interpret_all_concept(
             classes_segmentation_metric.update(ind_class_label, classes_metric)
 
             # Save preview image
-            if idx < 15:
+            if idx < 100 and args.batch_vis:
                 save_key_image(
                     ind_class_name,
                     ind_X,
@@ -503,6 +524,158 @@ def interpret_all_concept(
                     f"{ind_class_name}-{idx}:{batch_mask}",
                     class_save_to,
                 )
+                _, top5_pred_indices = torch.topk(
+                    concept_predictions[batch_mask], k=5, dim=-1
+                )
+
+                for k in range(top5_pred_indices.size(0)):
+                    index = top5_pred_indices[k]
+                    binarized_concepts_attribution = torch.maximum(
+                        concepts_attribution[index], concepts_attribution[index].new_zeros(concepts_attribution[index].size())
+                    )
+                    # binarized_concepts_attribution = normalize(binarized_concepts_attribution)
+                    viz_attn_only(ind_X, binarized_concepts_attribution, True, f"topK-{ind_class_name}-{idx}:{batch_mask}-{k}-{index}", topK_save_to)
+
+    # if save_saliency_map:
+    #     saliency_map_pack["concepts_saliency_map"] = torch.stack(saliency_map_pack["concepts_saliency_map"])  #[N, 18, 1, H, W]
+    #     saliency_map_pack["classes_saliency_map"] =  torch.stack(saliency_map_pack["classes_saliency_map"])  #[N, 1, 1, H, W]
+
+    return (
+        concepts_segmentation_metric,
+        classes_segmentation_metric,
+        weighted_cocnepts_metric,
+    )
+
+
+def cub_interpret_all_concept(
+    args,
+    model: CBM_Net,
+    data_loader: DataLoader,
+    explain_algorithm_forward: Callable,
+    explain_concept: torch.Tensor,
+):
+
+    class_save_to = os.path.join(args.save_path, "images", "class")
+
+    # Prepare weighted class attribution
+    topk_concept_indice, topk_concept_weights = (
+        model.get_topK_concepts()
+    )  # [C, K], [C, K]
+
+    for idx, (images, class_labels, concept_labels, use_concept_labels) in enumerate(tqdm(data_loader)):
+        images = images.squeeze().to(args.device)
+        class_labels = class_labels.squeeze().to(args.device)
+        concept_labels = concept_labels.squeeze().to(args.device)
+
+        B, C, W, H = image.size()
+        _, K = attr_labels.size()
+
+        with torch.no_grad():
+            _, concept_predictions, _ = model(image)
+
+        for batch_mask in range(B):
+            ind_X = image[batch_mask : batch_mask + 1]
+            ind_attr_labels = attr_labels[batch_mask]
+            ind_attr_masks = attr_masks[batch_mask]
+            ind_class_name = class_name[batch_mask]
+            ind_class_label = class_label[batch_mask].item()
+
+            # Get active labels
+            k_val = int(torch.sum(ind_attr_labels).item())
+            valid_concepts_mask = torch.zeros_like(ind_attr_labels)
+            _, top_pred_indices = torch.topk(
+                concept_predictions[batch_mask], k=k_val, dim=-1
+            )
+            valid_concepts_mask[top_pred_indices] = 1
+            valid_concepts_mask = valid_concepts_mask & ind_attr_labels
+
+            # Explain concepts
+            model.zero_grad()
+            concepts_attribution: torch.Tensor = explain_algorithm_forward(
+                batch_X=ind_X, target=explain_concept
+            )  # [18, 1, H, W]
+
+            classes_attribution: torch.Tensor = CBM_Net.attribute_weighted_class(
+                concepts_attribution,
+                topk_concept_weights[ind_class_label],
+                topk_concept_indice[ind_class_label],
+            )
+            # [1, 1, H, W]
+
+            # # Save saliency map while remaining batch dimension
+            # if save_saliency_map:
+            #     saliency_map_pack["concepts_saliency_map"].append(concepts_attribution.detach().cpu())
+            #     saliency_map_pack["classes_saliency_map"].append(classes_attribution.detach().cpu())
+
+            # ----------
+            # Concepts segmentation metric
+            # ----------
+            concepts_metric = attribution_iou(
+                concepts_attribution.sum(dim=1, keepdim=True),
+                ind_attr_masks,
+                ind_X=ind_X,
+                binarize_or_not=True,
+            )
+            concepts_metric = attribution_metric.pack_tuple(concepts_metric)
+            concepts_segmentation_metric.update(
+                ind_class_label, concepts_metric, ind_attr_labels, valid_concepts_mask
+            )
+
+            # ----------
+            # Weighted concepts segmentation metric
+            # ----------
+            weighted_metric = attribution_iou(
+                concepts_attribution.sum(dim=1, keepdim=True),
+                ind_attr_masks,
+                ind_X=ind_X,
+                binarize_or_not=False,
+            )
+            weighted_metric = attribution_metric.pack_tuple(weighted_metric)
+            weighted_cocnepts_metric.update(
+                ind_class_label, weighted_metric, ind_attr_labels, valid_concepts_mask
+            )
+
+            # ----------
+            # Classes segmentation metric
+            # ----------
+            classes_metric = attribution_iou(
+                classes_attribution,
+                ind_attr_masks[-1:],
+                ind_X=ind_X,
+                binarize_or_not=True,
+            )
+            classes_metric = attribution_metric.pack_tuple(classes_metric)
+            classes_segmentation_metric.update(ind_class_label, classes_metric)
+
+            # Save preview image
+            if idx < 100 and args.batch_vis:
+                save_key_image(
+                    ind_class_name,
+                    ind_X,
+                    concepts_attribution.sum(dim=1, keepdim=True),
+                    ind_attr_masks,
+                    f"{idx}:{batch_mask}",
+                    concept_save_to,
+                )
+                __vis_ind_image(
+                    ind_X,
+                    classes_attribution,
+                    ind_attr_masks,
+                    -1,
+                    f"{ind_class_name}-{idx}:{batch_mask}",
+                    class_save_to,
+                )
+                _, top5_pred_indices = torch.topk(
+                    concept_predictions[batch_mask], k=5, dim=-1
+                )
+
+                for k in range(top5_pred_indices.size(0)):
+                    index = top5_pred_indices[k]
+                    binarized_concepts_attribution = torch.maximum(
+                        concepts_attribution[index], concepts_attribution[index].new_zeros(concepts_attribution[index].size())
+                    )
+                    # binarized_concepts_attribution = normalize(binarized_concepts_attribution)
+                    viz_attn_only(ind_X, binarized_concepts_attribution, True, f"topK-{ind_class_name}-{idx}:{batch_mask}-{k}-{index}", topK_save_to)
 
     # if save_saliency_map:
     #     saliency_map_pack["concepts_saliency_map"] = torch.stack(saliency_map_pack["concepts_saliency_map"])  #[N, 18, 1, H, W]
@@ -521,20 +694,35 @@ def compute_adi(
     data_loader: DataLoader,
     explain_algorithm_forward: Callable,
 ):
-    avg_drop_list = []
-    avg_inc_list = []
-    avg_gain_list = []
+    concepts_avg_drop_list = []
+    concepts_avg_inc_list = []
+    concepts_avg_gain_list = []
+    
+    classes_avg_drop_list = []
+    classes_avg_inc_list = []
+    classes_avg_gain_list = []
+    
+    topk_concept_indice, topk_concept_weights = (
+        model.get_topK_concepts()
+    ) 
+    
     for idx, data in enumerate(tqdm(data_loader)):
         if isinstance(data, dict):
             image: torch.Tensor = data["img"].to(args.device)
             attr_labels: torch.Tensor = data["attr_labels"].to(args.device)
+            class_label: torch.Tensor = data["og_class_label"].to(args.device)
         else:
             image: torch.Tensor = data[0].to(args.device)
+            class_label = data[1]
             attr_labels = data[2]
 
             if isinstance(attr_labels, list):
                 attr_labels = torch.stack(attr_labels).permute((1, 0))
-                
+            
+            if not isinstance(class_label, torch.Tensor):
+                class_label = torch.Tensor(class_label)
+            
+            class_label = class_label.to(args.device)
             attr_labels = attr_labels.to(args.device)
                 
         if image.shape.__len__() > 4:
@@ -547,6 +735,8 @@ def compute_adi(
         for batch_mask in range(B):
             ind_X = image[batch_mask : batch_mask + 1]  # [1, C, H, W]
             ind_attr_labels = attr_labels[batch_mask]
+            ind_class_label = class_label[batch_mask].item()
+
             if torch.all(ind_attr_labels == 0):
                 continue
             # Explain concepts
@@ -555,12 +745,36 @@ def compute_adi(
                 batch_X=ind_X, target=ind_attr_labels.nonzero().view(-1)
             )  # [K, 1, H, W]
             concepts_attribution = concepts_attribution.sum(dim=1, keepdim=True)
+            
             concepts_attribution = (
                 concepts_attribution
                 - concepts_attribution.amin(dim=(1, 2, 3))[:, None, None, None]
             ) / (
                 concepts_attribution.amax(dim=(1, 2, 3))
                 - concepts_attribution.amin(dim=(1, 2, 3))
+            )[:, None, None, None]  # [K, 1, H, W]
+            
+            
+            all_explain_concept: torch.Tensor = torch.arange(
+                0, ind_attr_labels.size(-1)
+            ).to(args.device)
+            
+            all_concepts_attribution: torch.Tensor = explain_algorithm_forward(
+                batch_X=ind_X, target=all_explain_concept
+            )
+            all_concepts_attribution = all_concepts_attribution.sum(dim=1, keepdim=True)
+            classes_attribution: torch.Tensor = CBM_Net.attribute_weighted_class(
+                all_concepts_attribution,
+                topk_concept_weights[ind_class_label],
+                topk_concept_indice[ind_class_label],
+            )
+            
+            classes_attribution = (
+                classes_attribution
+                - classes_attribution.amin(dim=(1, 2, 3))[:, None, None, None]
+            ) / (
+                classes_attribution.amax(dim=(1, 2, 3))
+                - classes_attribution.amin(dim=(1, 2, 3))
             )[:, None, None, None]  # [K, 1, H, W]
 
             masked_image = concepts_attribution * ind_X  # [K, C, H, W]
@@ -570,14 +784,28 @@ def compute_adi(
                 masked_image,
                 ind_attr_labels.unsqueeze(0),
             )
-            avg_drop_list.append(avg_drop)
-            avg_inc_list.append(avg_inc)
-            avg_gain_list.append(avg_gain)
+            concepts_avg_drop_list.append(avg_drop)
+            concepts_avg_inc_list.append(avg_inc)
+            concepts_avg_gain_list.append(avg_gain)
+            
+            masked_image = classes_attribution * ind_X  # [K, C, H, W]
+            avg_drop, avg_inc, avg_gain = concepts_adi(
+                model.encode_as_concepts,
+                ind_X,
+                masked_image,
+                ind_attr_labels.unsqueeze(0),
+            )
+            classes_avg_drop_list.append(avg_drop)
+            classes_avg_inc_list.append(avg_inc)
+            classes_avg_gain_list.append(avg_gain)
 
     return (
-        torch.stack(avg_drop_list).mean(),
-        torch.stack(avg_inc_list).mean(),
-        torch.stack(avg_gain_list).mean(),
+        torch.stack(concepts_avg_drop_list).mean(),
+        torch.stack(concepts_avg_inc_list).mean(),
+        torch.stack(concepts_avg_gain_list).mean(),
+        torch.stack(classes_avg_drop_list).mean(),
+        torch.stack(classes_avg_inc_list).mean(),
+        torch.stack(classes_avg_gain_list).mean(),
     )
 
 
@@ -585,7 +813,7 @@ def concepts_adi(
     model: Callable,
     images: torch.Tensor,
     masked_images: torch.Tensor,
-    active_labels: torch.Tensor,
+    active_labels: Union[torch.Tensor, int],
 ):
     """
     Args:
@@ -604,10 +832,14 @@ def concepts_adi(
     masked_concepts_logits = None
     with torch.no_grad():
         concepts_logits: torch.Tensor = model(images)  # [1, D]
-        masked_concepts_logits: torch.Tensor = model(masked_images)  # [B, D]
+        masked_concepts_logits: torch.Tensor = model(masked_images)  # [1, D]
 
-    Y = concepts_logits[:, active_labels[0].bool()].sigmoid()  # [1, D] -> [K, ]
-    O = masked_concepts_logits[:, active_labels[0].bool()].sigmoid()  # [K, D] -> [K, ]
+    if isinstance(active_labels, torch.Tensor):
+        Y = concepts_logits[:, active_labels[0].bool()].sigmoid()  # [1, D] -> [1, K]
+        O = masked_concepts_logits[:, active_labels[0].bool()].sigmoid()  # [1, D] -> [1, K]
+    else:
+        Y = concepts_logits[:, active_labels].sigmoid()  # [1, D] -> [1, 1]
+        O = masked_concepts_logits[:, active_labels].sigmoid()  # [1, D] -> [1, 1]      
 
     avg_drop = torch.maximum(Y - O, torch.zeros_like(Y)) / Y  # [K, ]
     avg_gain = torch.maximum(O - Y, torch.zeros_like(Y)) / (1 - Y)  # [K, ]
@@ -729,16 +961,16 @@ def eval_model_explainability(
     if not os.path.exists(eval_save_to):
         os.mkdir(eval_save_to)
 
-    # eval_attribution_alignment(
-    #     args,
-    #     preprocess,
-    #     model,
-    #     concept_bank,
-    #     explain_algorithm_forward,
-    #     eval_save_to,
-    # )
-
     eval_explain_method(args, model, dataset.test_loader, explain_algorithm_forward, eval_save_to)
+    
+    eval_attribution_alignment(
+        args,
+        preprocess,
+        model,
+        concept_bank,
+        explain_algorithm_forward,
+        eval_save_to,
+    )
 
 
 def eval_attribution_alignment(
@@ -811,17 +1043,25 @@ def eval_attribution_alignment(
 def eval_explain_method(
     args, model: CBM_Net, data_loader: DataLoader, explain_algorithm_forward: Callable, eval_save_to: str,
 ):
-    avg_drop, avg_inc, avg_gain = compute_adi(
+    concepts_avg_drop, concepts_avg_inc, concepts_avg_gain, classes_avg_drop, classes_avg_inc, classes_avg_gain = compute_adi(
         args,
         model,
         data_loader,
         explain_algorithm_forward,
     )
-    args.logger.info(f"avg_drop: {avg_drop * 100:.2f}\\%, avg_inc: {avg_inc * 100:.2f}\\%, avg_gain: {avg_gain * 100:.2f}\\%")
+    args.logger.info("Concepts:")
+    args.logger.info(f"avg_drop: {concepts_avg_drop * 100:.2f}\\%, avg_inc: {concepts_avg_inc * 100:.2f}\\%, avg_gain: {concepts_avg_gain * 100:.2f}\\%")
+    
+    args.logger.info("Class:")
+    args.logger.info(f"avg_drop: {classes_avg_drop * 100:.2f}\\%, avg_inc: {classes_avg_inc * 100:.2f}\\%, avg_gain: {classes_avg_gain * 100:.2f}\\%")
+
     torch.save({
-            "avg_drop": avg_drop,
-            "avg_inc" : avg_inc,
-            "avg_gain": avg_gain,
+            "concepts_avg_drop": concepts_avg_drop,
+            "concepts_avg_inc" : concepts_avg_inc,
+            "concepts_avg_gain": concepts_avg_gain,
+            "classes_avg_drop": classes_avg_drop,
+            "classes_avg_inc" : classes_avg_inc,
+            "classes_avg_gain": classes_avg_gain,
         }, os.path.join(eval_save_to, "adi_pack.pt"))
     
-    return avg_drop, avg_inc, avg_gain
+    # return avg_drop, avg_inc, avg_gain

@@ -53,6 +53,12 @@ class css_pcbm(CBM_Net):
             nn.LayerNorm(self.num_of_concepts),
             nn.Linear(self.num_of_concepts, self.num_of_classes),
         )
+        
+        for name, param in self.named_parameters():
+            if name.split(".")[0] in self.TRAINABLE_COMPONENTS:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
 
     # ------------
     # Getter & Setter

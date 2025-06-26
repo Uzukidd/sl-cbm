@@ -98,7 +98,7 @@ class CSS_CUB_Dataset(Dataset):
                 
                 concept_label_pairs[i].append(torch.tensor(concept_label))
         
-                if idx in self.concept_labelled_samples:
+                if secondary_idx in self.concept_labelled_samples:
                     use_concept_labels[i].append(torch.tensor(1))
                 else:
                     use_concept_labels[i].append(torch.tensor(0))

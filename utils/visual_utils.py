@@ -15,7 +15,7 @@ def reduce_tensor_as_numpy(input:torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
         [W, H, C]
     """
     if input.size().__len__() == 4:
-        input.detach_().squeeze_(0)
+        input = input.detach().squeeze(0)
     return input.permute((1, 2, 0)).detach().cpu().numpy()
                 
 def show_image(images:torch.Tensor, comparison_images:torch.Tensor=None):
@@ -75,6 +75,25 @@ def viz_attn(batch_X:torch.Tensor, attributions:torch.Tensor, blur=True, prefix:
         axes[1].imshow(attn_map)
         for ax in axes:
             ax.axis("off")
+        plt.show()
+        
+def viz_attn_only(batch_X:torch.Tensor, attributions:torch.Tensor, blur=True, prefix:str="", save_to:str=None):
+    import matplotlib.pyplot as plt
+    batch_X = reduce_tensor_as_numpy(batch_X)
+    attributions = reduce_tensor_as_numpy(attributions)
+    
+    attn_map = None
+    attn_map = getAttMap(batch_X, attributions.sum(2), blur)
+
+    plt.imshow(np.clip(attn_map, 0.0, 1.0))
+    plt.axis("off")
+    plt.tight_layout()
+    
+    if save_to is not None:
+        os.makedirs(save_to, exist_ok=True)
+        plt.savefig(os.path.join(save_to, f"{prefix}-attn_image.jpg"), bbox_inches='tight', pad_inches=0)
+        plt.close()
+    else:
         plt.show()
         
 def viz_attn_multiple(batch_X:torch.Tensor, attributions:list[torch.Tensor], blur=True, prefix:str="", save_to:str=None):

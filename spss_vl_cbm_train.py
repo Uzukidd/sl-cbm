@@ -71,6 +71,7 @@ def config():
     parser.add_argument("--evaluate", action="store_true")
 
     parser.add_argument("--not-save-ckpt", action="store_true")
+    parser.add_argument('--batch-vis', action='store_true')
 
     parser.add_argument(
         "--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str

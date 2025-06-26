@@ -10,7 +10,7 @@ from typing import Tuple, Callable, Union, Optional, Dict
 from dataclasses import dataclass, field
 from functools import partial
 
-
+import os
 import clip
 from clip.model import CLIP as clip_model_CLIP
 import open_clip
@@ -169,7 +169,7 @@ def load_dataset(args:Union[argparse.Namespace, dataset_configure],
         train_dataset = CSS_CUB_Dataset(split="train",pkl_paths=TRAIN_PKL, true_batch_size=args.batch_size, 
                                           percentage_of_concept_labels_for_training=0.01, 
                                           transform=None)
-        test_dataset = CSS_CUB_Dataset(split="test",pkl_paths=TRAIN_PKL, true_batch_size=args.batch_size, 
+        test_dataset = CSS_CUB_Dataset(split="test",pkl_paths=TEST_PKL, true_batch_size=args.batch_size, 
                                          percentage_of_concept_labels_for_training=0.0, 
                                          transform=None)
         
@@ -495,7 +495,8 @@ def build_pcbm_model(args:Union[argparse.Namespace, model_pipeline_configure],
     else:
         raise NotImplementedError
     
-    if args.pcbm_ckpt is not None and os.path.exists(args.pcbm_ckpt) and os.path.isfile(args.pcbm_ckpt):
+    if args.pcbm_ckpt is not None :
+        assert os.path.exists(args.pcbm_ckpt) and os.path.isfile(args.pcbm_ckpt)
         model.load_state_dict(torch.load(args.pcbm_ckpt), strict=False)
         print(f"Successfully loaded checkpoint from {args.pcbm_ckpt}")
     model.to(args.device)

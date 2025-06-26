@@ -167,6 +167,7 @@ def val_one_epoch(val_data_loader, model, loss_fn, device):
             concept_labels = torch.reshape(concept_labels,(concept_labels.shape[0]*2, concept_labels.shape[-1]))
             use_concept_labels = torch.reshape(use_concept_labels,(use_concept_labels.shape[0]*2,1)).squeeze()
 
+
             #Forward
             class_predictions, concept_predictions, _ = model(images)
 

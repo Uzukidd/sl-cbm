@@ -37,7 +37,7 @@ def config():
     parser.add_argument("--num-workers", default=4, type=int)
 
     parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
-    parser.add_argument('--save-100-local', action='store_true')
+    parser.add_argument('--batch-vis', action='store_true')
 
     return parser.parse_args()
 
