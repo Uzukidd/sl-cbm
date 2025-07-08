@@ -45,6 +45,8 @@ def config():
 
     parser.add_argument("--dataset", default="css_rival10", type=str)
     parser.add_argument("--device", default="cuda", type=str)
+    parser.add_argument("--target-dataset", default="spss_rival10", type=str)
+
     parser.add_argument("--batch-size", default=8, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
     
@@ -55,6 +57,7 @@ def config():
     parser.add_argument('--evaluate', action='store_true')
 
     parser.add_argument('--not-save-ckpt', action='store_true')
+    parser.add_argument("--batch-vis", action="store_true")
     
     parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
 
@@ -228,14 +231,37 @@ def main(args:argparse.Namespace):
         args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
         args.logger.info('\t Time per epoch (in mins) = %d %s', round((time.time()-begin)/60,2),'\n\n')
     
+    target_dataset = None
+    if args.target_dataset is not None and args.target_dataset != args.dataset:
+        target_dataset = load_dataset(
+            dataset_configure(
+                dataset=args.target_dataset,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+            ),
+            backbone.preprocess,
+        )
+    else:
+        target_dataset = dataset
+
     eval_model_explainability(
         args,
         model,
         backbone.preprocess,
-        dataset,
+        target_dataset,
         concept_bank,
         args.explain_method,
-    )    
+    )
+
+    
+    # eval_model_explainability(
+    #     args,
+    #     model,
+    #     backbone.preprocess,
+    #     dataset,
+    #     concept_bank,
+    #     args.explain_method,
+    # )    
 if __name__ == "__main__":
     args = config()
     args.save_path = os.path.join("./outputs", args.exp_name)

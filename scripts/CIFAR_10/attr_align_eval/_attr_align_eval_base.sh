@@ -1,4 +1,4 @@
-python attr_align_evalutaion.py --dataset="rival10_full"\
+python attr_align_evalutaion.py --dataset="cifar10_concepts"\
             --backbone-ckpt="$1"\
             --backbone-name="$2"\
             --concept-bank="$3"\

@@ -53,6 +53,8 @@ def config():
     parser.add_argument("--pcbm-arch", default="spss_pcbm", type=str)
 
     parser.add_argument("--dataset", default="spss_rival10", type=str)
+    parser.add_argument("--target-dataset", default="rival10_full", type=str)
+
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--batch-size", default=8, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
@@ -62,7 +64,7 @@ def config():
     parser.add_argument("--use-concept-softmax", action="store_true")
     parser.add_argument("--lambda1", default=1.0, type=float)
     parser.add_argument("--lambda2", default=1.0, type=float)
-    parser.add_argument("--lambda3", default=1.0, type=float)
+    parser.add_argument("--lambda3", default=5.0, type=float)
     parser.add_argument("--lambda4", default=1.0, type=float)
     parser.add_argument("--lr", default=3e-4, type=float)
 
@@ -71,7 +73,7 @@ def config():
     parser.add_argument("--evaluate", action="store_true")
 
     parser.add_argument("--not-save-ckpt", action="store_true")
-    parser.add_argument('--batch-vis', action='store_true')
+    parser.add_argument("--batch-vis", action="store_true")
 
     parser.add_argument(
         "--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str
@@ -255,12 +257,25 @@ def main(args: argparse.Namespace):
 
         if args.evaluate:
             break
-        
+    
+    target_dataset = None
+    if args.target_dataset is not None and args.target_dataset != args.dataset:
+        target_dataset = load_dataset(
+            dataset_configure(
+                dataset=args.target_dataset,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+            ),
+            backbone.preprocess,
+        )
+    else:
+        target_dataset = dataset
+
     eval_model_explainability(
         args,
         model,
         backbone.preprocess,
-        dataset,
+        target_dataset,
         concept_bank,
         args.explain_method,
     )

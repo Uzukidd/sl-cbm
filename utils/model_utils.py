@@ -12,7 +12,7 @@ from open_clip.model import CLIP as open_clip_model_CLIP
 from pcbm.learn_concepts_multimodal import *
 from pcbm.data import get_dataset
 from pcbm.concepts import ConceptBank
-from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, CAV, get_model
+from pcbm.models import PosthocLinearCBM, PosthocHybridCBM, get_model
 from pcbm.training_tools import load_or_compute_projections
 
 from abc import ABC, abstractmethod
@@ -38,6 +38,63 @@ class model_pipeline:
     preprocess: transforms.Compose
     normalizer: transforms.Compose
     backbone: nn.Module
+
+
+def generate_topk_mask(W, nec=5):
+    num_classes, num_concepts = W.shape
+    mask = torch.zeros_like(W)
+
+    for c in range(num_classes):
+        weights = W[c].abs()
+        topk_indices = torch.topk(weights, k=nec).indices
+        mask[c, topk_indices] = 1.0
+
+    return mask
+
+
+class NECLinear(nn.Linear):
+    def __init__(
+        self, in_features: int, out_features: int, nec: int, bias: bool = True
+    ):
+        super().__init__(in_features, out_features, bias)
+        assert nec <= in_features
+        self.nec = nec
+        self.nec_mask = None
+        self.enable_nec = False
+
+    def forward(self, input):
+        if self.enable_nec: 
+            # if self.nec_mask is None:
+            self.nec_mask = generate_topk_mask(self.weight, nec=self.nec).to(
+                self.weight.device
+            )
+            weight_sparse = self.weight * self.nec_mask
+            return F.linear(input, weight_sparse, self.bias)
+        else:
+            return super().forward(input)
+
+
+class CAV(nn.Module):
+
+    def __init__(
+        self,
+        cavs: torch.Tensor,
+        intercepts: torch.Tensor,
+        norms: torch.Tensor,
+        names: list = None,
+    ):
+        super().__init__()
+
+        self.cavs = cavs
+        self.intercepts = intercepts
+        self.norms = norms
+        self.names = names
+        self.n_concepts = self.cavs.shape[0]
+
+    def forward(self, emb: torch.Tensor):
+        # Computing the geometric margin to the decision boundary specified by CAV.
+        margins = (torch.matmul(self.cavs, emb.T) + self.intercepts) / (self.norms)
+        return margins.T
 
 
 # class ResNetBottom(nn.Module):
@@ -122,6 +179,7 @@ class CLIPWrapper(nn.Module):
 
 
 class CBM_Net(ABC, nn.Module):
+
     def __init__(self):
         super().__init__()
 
@@ -243,6 +301,13 @@ class CBM_Net(ABC, nn.Module):
         ).sum(dim=0, keepdim=True)
 
         return class_attribution
+
+    def enable_nec(
+        self,
+        enable:bool,
+        nec:int=5
+    ) -> None:
+        pass
 
 
 # Modified from https://github.com/billpsomas/simpool/blob/master/sp.py

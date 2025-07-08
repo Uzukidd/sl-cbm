@@ -5,11 +5,10 @@ from clip.model import CLIP as clip_model_CLIP
 from open_clip.model import CLIP as open_clip_model_CLIP
 
 from pcbm.concepts import ConceptBank
-from pcbm.models import CAV
 
 from typing import Tuple, Callable, Union, Optional
 
-from .model_utils import CBM_Net
+from utils.model_utils import CBM_Net, CAV
 
 # CLIP VL-CBM
 class clip_cbm(CBM_Net):

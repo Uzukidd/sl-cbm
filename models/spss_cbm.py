@@ -7,16 +7,16 @@ from clip.model import CLIP as clip_model_CLIP
 from open_clip.model import CLIP as open_clip_model_CLIP
 
 from pcbm.concepts import ConceptBank
-from pcbm.models import CAV
+# from pcbm.models import CAV
 
 from typing import Tuple, Callable, Union, Optional
 
-from .model_utils import CBM_Net, SimPool, ResNetBottom
+from utils.model_utils import CBM_Net, SimPool, ResNetBottom, CAV, NECLinear
 
 
 # SimPooling Semi-Supervised (SPSS) VL-CBM
 class spss_pcbm(CBM_Net):
-    TRAINABLE_COMPONENTS = ["simpool", "token_projection", "classifier"]
+    TRAINABLE_COMPONENTS = ["simpool", "token_projection", "classifier", "concepts_projection"]
 
     def __init__(
         self,
@@ -32,7 +32,6 @@ class spss_pcbm(CBM_Net):
         self.normalizer = normalizer
         self.backbone: Union[open_clip_model_CLIP, ResNetBottom] = backbone
         self.concept_softmax = concept_softmax
-        
 
         self.cavs: torch.Tensor = self.concept_bank.vectors.detach().clone()  # [18, D]
         self.concept_names: list[str] = self.concept_bank.concept_names.copy()
@@ -55,7 +54,7 @@ class spss_pcbm(CBM_Net):
             concept_bank.norms,
             concept_bank.concept_names.copy(),
         )
-        
+
         if isinstance(self.backbone, open_clip_model_CLIP):
             self.embedding_size = self.backbone.visual.output_dim
             assert hasattr(self.backbone.visual, "output_tokens")
@@ -64,14 +63,15 @@ class spss_pcbm(CBM_Net):
         elif isinstance(self.backbone, ResNetBottom):
             self.embedding_size = token_width = self.backbone.classifier.in_features
             self.backbone.output_visual_patches = True
-            
+
         self.token_projection = nn.Linear(
             in_features=token_width, out_features=self.num_of_concepts
         )
-
+        self.concepts_projection = NECLinear(self.num_of_concepts, self.num_of_classes, nec=5)
+        # self.concepts_projection = nn.Linear(self.num_of_concepts, self.num_of_classes)
         self.classifier = nn.Sequential(
             nn.LayerNorm(self.num_of_concepts),
-            nn.Linear(self.num_of_concepts, self.num_of_classes),
+            self.concepts_projection
         )
 
         self._attn_map = None
@@ -213,9 +213,11 @@ class spss_pcbm(CBM_Net):
         """
         # [C] [B, grid * grid, C]
         _, token_concepts = self.encode_as_concepts(batch_X, return_token_concepts=True)
-        
+
         if token_concepts.size().__len__() == 4:
-            token_concepts = token_concepts.view(token_concepts.size(0), -1, token_concepts.size(-1))
+            token_concepts = token_concepts.view(
+                token_concepts.size(0), -1, token_concepts.size(-1)
+            )
         B, N, C = token_concepts.size()
 
         if isinstance(target, torch.Tensor):
@@ -256,3 +258,11 @@ class spss_pcbm(CBM_Net):
 
     def forward_projs(self, concept_projs: torch.Tensor) -> torch.Tensor:
         return self.classifier(concept_projs)
+    
+    def enable_nec(
+        self,
+        enable:bool,
+        nec:int=5
+    ) -> None:
+        self.concepts_projection.enable_nec = enable
+        self.concepts_projection.nec = nec

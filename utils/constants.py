@@ -1,15 +1,16 @@
 import numpy as np
+from rival10 import RIVAL10_constants
 
 class CLIP_constants:
     pass
 
 class dataset_constants:
     image_size:np.ndarray = np.array([3, 244, 244])
-    CIFAR10_DIR:str = "/home/ksas/Public/datasets/CIFAR10"
-    CIFAR100_DIR:str = "/home/ksas/Public/datasets/CIFAR100"
-    CUB_DATA_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/CUB_200_2011"
-    CUB_PROCESSED_DIR:str = "/home/ksas/Public/datasets/CUB_DATASET/class_attr_data_10"
-    RIVAL10_DIR:str = "/home/ksas/Public/datasets/RIVAL10/"
+    CIFAR10_DIR:str = "data/CIFAR10"
+    CIFAR100_DIR:str = "data/CIFAR100"
+    CUB_DATA_DIR:str = "data/CUB_DATASET/CUB_200_2011"
+    CUB_PROCESSED_DIR:str = "data/CUB_DATASET/class_attr_data_10"
+    RIVAL10_DIR:str = "data/RIVAL10"
 
 class CUB_features:
     # body part = (min, max)
@@ -48,5 +49,31 @@ class CUB_features:
     183, 187, 188, 193, 194, 196, 198, 202, 203, 208, 209, 211, 212, 213, 218, 220, 221, 225, 235, 236, 238, 239, 240, 242, 243, 244, 249, 253, \
     254, 259, 260, 262, 268, 274, 277, 283, 289, 292, 293, 294, 298, 299, 304, 305, 308, 309, 310, 311]
 
+RIVAL10_constants.label_concepts_upperbound = {
+    4: [1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1],
+    1: [1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
+    0: [0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
+    9: [0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1],
+    6: [1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    5: [1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    2: [0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1],
+    7: [1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1],
+    8: [1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1],
+    3: [0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1],
+}
+
+RIVAL10_constants.label_cifar10_to_rival10 = {
+    0: 2,  # airplane → plane
+    1: 1,  # automobile → car
+    2: 9,  # bird → bird
+    3: 4,  # cat → cat
+    4: 7,  # deer → deer
+    5: 5,  # dog → dog
+    6: 8,  # frog → frog
+    7: 6,  # horse → equine
+    8: 3,  # ship → ship
+    9: 0,  # truck → truck
+}
+
 class model_zoo:
-    CLIP:str = "/home/ksas/Public/model_zoo/clip"
+    CLIP:str = "model_zoo/clip"

@@ -3,7 +3,7 @@ test_tap.py
 data/*
 outputs/*
 ref/*
-
+concept_banks/*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

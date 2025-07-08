@@ -365,10 +365,10 @@ class CausalMetric(nn.Module):
         if 'del' in self.mode:
             start = img_batch.clone().detach()
             finish = substrate.flatten(start_dim=2)
-            
         elif 'ins' in self.mode:
             start = substrate
             finish = img_batch.clone().detach().flatten(start_dim=2)
+        
         with torch.no_grad():
             # While not all pixels are changed
             for i in range(n_steps+1):

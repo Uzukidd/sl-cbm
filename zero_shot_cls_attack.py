@@ -27,19 +27,21 @@ from pcbm.models import PosthocLinearCBM, get_model
 from captum.attr import visualization, GradientAttribution, LayerAttribution
 from utils import *
 
-
 def config():
     parser = argparse.ArgumentParser()
     parser.add_argument("--universal-seed", default=int(time.time()), type=int, help="Universal random seed")
+    parser.add_argument("--concept-bank", default="concept_banks/multimodal_concept_clip_RN50_cifar10_recurse_1.pkl", type=str, help="Path to the concept bank")
     
-    parser.add_argument("--backbone-ckpt", required=True, type=str, help="Path to the backbone ckpt")
+    parser.add_argument(
+        "--backbone-ckpt", default="model_zoo/clip", type=str, help="Path to the backbone ckpt"
+    )
     parser.add_argument("--backbone-name", default="clip:RN50", type=str)
+
+    parser.add_argument("--pcbm-arch", default="pcbm", type=str, help="Bottleneck model architecture")
+    parser.add_argument("--pcbm-ckpt", default="data/ckpt/RIVAL_10/CIFAR_10/pcbm_cifar10__clip_RN50__multimodal_concept_clip_RN50_cifar10_recurse_1__lam_0.0002__alpha_0.99__seed_42.ckpt", type=str, help="Path to the PCBM checkpoint")
+
     
-    parser.add_argument("--concept-bank", required=True, type=str, help="Path to the concept bank")
-    
-    parser.add_argument("--pcbm-ckpt", required=True, type=str, help="Path to the PCBM checkpoint")
-    
-    parser.add_argument("--dataset", default="cifar10", type=str)
+    parser.add_argument("--dataset", default="rival10", type=str)
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--batch-size", default=64, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
@@ -53,43 +55,32 @@ def config():
     
 def main(args):
     set_random_seed(args.universal_seed)
-    concept_bank = load_concept_bank(args)
-    backbone, preprocess = load_backbone(args)
-    print(preprocess)
-    normalizer = transforms.Compose(preprocess.transforms[-1:])
-    preprocess = transforms.Compose(preprocess.transforms[:-1])
+    concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
+    model.eval()
     
-    posthoc_layer = load_pcbm(args)
-    trainset, testset, class_to_idx, idx_to_class, train_loader, test_loader = load_dataset(args, preprocess)
-    
-    model_context = model_pipeline(concept_bank = concept_bank, 
-                   posthoc_layer = posthoc_layer, 
-                   preprocess = preprocess, 
-                   normalizer = normalizer, 
-                   backbone = backbone)
-    posthoc_concept_net = PCBM_Net(model_context=model_context, 
-                                    output_logit=True)
-    adversary = AutoAttack(lambda x: posthoc_concept_net(x), 
+    adversary = AutoAttack(lambda x: model(x), 
                            norm='Linf', 
                            eps=args.eps, 
                            version='standard',
                            verbose=False)
 
-    
+    totall_accuracy_adv = []
     totall_accuracy = []
-    for idx, data in tqdm(enumerate(test_loader), 
-                          total=test_loader.__len__()):
+    for idx, data in tqdm(enumerate(dataset.test_loader), 
+                          total=dataset.test_loader.__len__()):
         batch_X, batch_Y = data
         batch_X:torch.Tensor = batch_X.to(args.device)
         batch_Y:torch.Tensor = batch_Y.to(args.device)
         
-        x_adv = adversary.run_standard_evaluation(batch_X, batch_Y, bs=args.batch_size)
+        # x_adv = adversary.run_standard_evaluation(batch_X, batch_Y, bs=args.batch_size)
         # dict_adv = adversary.run_standard_evaluation_individual(batch_X, batch_Y, bs=args.batch_size)
-                
-        totall_accuracy.append((posthoc_concept_net(x_adv, True) == batch_Y).float().mean().item())
+        totall_accuracy.append((model(batch_X)[0].argmax(-1) == batch_Y).float().mean().item())
+        # totall_accuracy_adv.append((model(x_adv, True) == batch_Y).float().mean().item())
     totall_accuracy = np.array(totall_accuracy).mean()
+    # totall_accuracy_adv = np.array(totall_accuracy_adv).mean()
     
     print(f"accuracy: {totall_accuracy}")
+    # print(f"accuracy: {totall_accuracy}")
     
 if __name__ == "__main__":
     args = config()

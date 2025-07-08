@@ -296,10 +296,10 @@ def collect_class_attribution(
         batch_attribution: [B, ...] (non-binarized/non-positive)
         batch_label: [B, 1]
     """
-    binarized_batch_attribution = torch.maximum(
-        batch_attribution, batch_attribution.new_zeros(batch_attribution.size())
-    )
-    binarized_batch_attribution = binarize(binarized_batch_attribution)
+    # binarized_batch_attribution = torch.maximum(
+    #     batch_attribution, batch_attribution.new_zeros(batch_attribution.size())
+    # )
+    # binarized_batch_attribution = binarize(binarized_batch_attribution)
 
     class_indices = concepts_indices[label]  # [K]
     class_weights = concepts_weights[label]  # [K]
@@ -449,6 +449,7 @@ def interpret_all_concept(
             valid_concepts_mask = valid_concepts_mask & ind_attr_labels
 
             # Explain concepts
+            # ind_X = ind_X.requires_grad_(True)
             model.zero_grad()
             concepts_attribution: torch.Tensor = explain_algorithm_forward(
                 batch_X=ind_X, target=explain_concept
@@ -741,6 +742,8 @@ def compute_adi(
                 continue
             # Explain concepts
             model.zero_grad()
+            # import pdb;pdb.set_trace()
+            # ind_X = ind_X.requires_grad_(True)
             concepts_attribution: torch.Tensor = explain_algorithm_forward(
                 batch_X=ind_X, target=ind_attr_labels.nonzero().view(-1)
             )  # [K, 1, H, W]
@@ -892,6 +895,9 @@ def val_one_epoch(val_data_loader: DataLoader, model: CBM_Net, device: torch.dev
                             .permute((1, 0))
                             .to(class_labels.device)
                         )
+                    
+                    # print(concept_labels)
+                    # import pdb;pdb.set_trace()
                 else:
                     images, class_labels, concept_labels, use_concept_labels = data
             else:
@@ -960,9 +966,7 @@ def eval_model_explainability(
     eval_save_to = os.path.join(args.save_path, "evaluations")
     if not os.path.exists(eval_save_to):
         os.mkdir(eval_save_to)
-
-    eval_explain_method(args, model, dataset.test_loader, explain_algorithm_forward, eval_save_to)
-    
+        
     eval_attribution_alignment(
         args,
         preprocess,
@@ -972,6 +976,26 @@ def eval_model_explainability(
         eval_save_to,
     )
 
+    eval_explain_method(args, model, dataset.test_loader, explain_algorithm_forward, eval_save_to)
+    
+    eval_nec(args, dataset.test_loader, model, [5, 10, 15], eval_save_to)
+
+def eval_nec(args,
+    data_laoder: DataLoader,
+    model: CBM_Net,
+    necs:Tuple[int],
+    eval_save_to: str,):
+    nec_5_acc = 0
+    anec_acc = []
+    for nec in necs:
+        model.enable_nec(True, nec)
+        acc, total_concept_acc = val_one_epoch(data_laoder, model, args.device)
+        # print(acc, total_concept_acc)
+        if nec == 5:
+            nec_5_acc = acc
+        anec_acc.append(acc)
+    anec_acc = np.array(anec_acc).mean().item()
+    print(f"NEC-5:{nec_5_acc}, ANEC:{anec_acc}")
 
 def eval_attribution_alignment(
     args,
@@ -982,61 +1006,61 @@ def eval_attribution_alignment(
     eval_save_to: str,
 ):
     model.eval()
-    if "rival10" in args.dataset:
-        rival10_dataset = load_dataset(
-            dataset_configure(
-                dataset="rival10_full",
-                batch_size=args.batch_size,
-                num_workers=args.num_workers,
-            ),
-            preprocess,
-        )
 
-        explain_concept: torch.Tensor = torch.arange(
-            0, concept_bank.concept_info.concept_names.__len__()
-        ).to(args.device)
+    rival10_dataset = load_dataset(
+        dataset_configure(
+            dataset="rival10_full",
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+        ),
+        preprocess,
+    )
 
-        # Start Rival attrbution alignment evaluation
-        (
-            concepts_segmentation_metric,
-            classes_segmentation_metric,
-            weighted_cocnepts_metric,
-        ) = interpret_all_concept(
-            args,
-            model,
-            rival10_dataset.test_loader,
-            explain_algorithm_forward,
-            explain_concept,
-        )
+    explain_concept: torch.Tensor = torch.arange(
+        0, concept_bank.concept_info.concept_names.__len__()
+    ).to(args.device)
 
-        args.logger.info(
-            concepts_segmentation_metric.format_output(
-                RIVAL10_constants._ALL_CLASSNAMES,
-                concept_bank.concept_info.concept_names,
-            )
-        )
-        args.logger.info(
-            weighted_cocnepts_metric.format_output(
-                RIVAL10_constants._ALL_CLASSNAMES,
-                concept_bank.concept_info.concept_names,
-            )
-        )
-        args.logger.info(
-            classes_segmentation_metric.format_output(RIVAL10_constants._ALL_CLASSNAMES)
-        )
+    # Start Rival attrbution alignment evaluation
+    (
+        concepts_segmentation_metric,
+        classes_segmentation_metric,
+        weighted_cocnepts_metric,
+    ) = interpret_all_concept(
+        args,
+        model,
+        rival10_dataset.test_loader,
+        explain_algorithm_forward,
+        explain_concept,
+    )
 
-        torch.save(
-            concepts_segmentation_metric.format_dict(),
-            os.path.join(eval_save_to, "concepts_segmentation_metric.pt"),
+    args.logger.info(
+        concepts_segmentation_metric.format_output(
+            RIVAL10_constants._ALL_CLASSNAMES,
+            concept_bank.concept_info.concept_names,
         )
-        torch.save(
-            weighted_cocnepts_metric.format_dict(),
-            os.path.join(eval_save_to, "weighted_cocnepts_metric.pt"),
+    )
+    args.logger.info(
+        weighted_cocnepts_metric.format_output(
+            RIVAL10_constants._ALL_CLASSNAMES,
+            concept_bank.concept_info.concept_names,
         )
-        torch.save(
-            classes_segmentation_metric.format_dict(),
-            os.path.join(eval_save_to, "classes_segmentation_metric.pt"),
-        )
+    )
+    args.logger.info(
+        classes_segmentation_metric.format_output(RIVAL10_constants._ALL_CLASSNAMES)
+    )
+
+    torch.save(
+        concepts_segmentation_metric.format_dict(),
+        os.path.join(eval_save_to, "concepts_segmentation_metric.pt"),
+    )
+    torch.save(
+        weighted_cocnepts_metric.format_dict(),
+        os.path.join(eval_save_to, "weighted_cocnepts_metric.pt"),
+    )
+    torch.save(
+        classes_segmentation_metric.format_dict(),
+        os.path.join(eval_save_to, "classes_segmentation_metric.pt"),
+    )
     # torch.save(saliency_map_pack, os.path.join(eval_save_to, "saliency_map_pack.pt"))
 
 
@@ -1049,19 +1073,22 @@ def eval_explain_method(
         data_loader,
         explain_algorithm_forward,
     )
-    args.logger.info("Concepts:")
-    args.logger.info(f"avg_drop: {concepts_avg_drop * 100:.2f}\\%, avg_inc: {concepts_avg_inc * 100:.2f}\\%, avg_gain: {concepts_avg_gain * 100:.2f}\\%")
     
-    args.logger.info("Class:")
-    args.logger.info(f"avg_drop: {classes_avg_drop * 100:.2f}\\%, avg_inc: {classes_avg_inc * 100:.2f}\\%, avg_gain: {classes_avg_gain * 100:.2f}\\%")
-
-    torch.save({
+    res_dict = {
             "concepts_avg_drop": concepts_avg_drop,
             "concepts_avg_inc" : concepts_avg_inc,
             "concepts_avg_gain": concepts_avg_gain,
             "classes_avg_drop": classes_avg_drop,
             "classes_avg_inc" : classes_avg_inc,
             "classes_avg_gain": classes_avg_gain,
-        }, os.path.join(eval_save_to, "adi_pack.pt"))
+        }
     
-    # return avg_drop, avg_inc, avg_gain
+    args.logger.info("Concepts:")
+    args.logger.info(f"avg_drop: {concepts_avg_drop * 100:.2f}\\%, avg_inc: {concepts_avg_inc * 100:.2f}\\%, avg_gain: {concepts_avg_gain * 100:.2f}\\%")
+    
+    args.logger.info("Class:")
+    args.logger.info(f"avg_drop: {classes_avg_drop * 100:.2f}\\%, avg_inc: {classes_avg_inc * 100:.2f}\\%, avg_gain: {classes_avg_gain * 100:.2f}\\%")
+
+    torch.save(res_dict, os.path.join(eval_save_to, "adi_pack.pt"))
+    
+    return res_dict

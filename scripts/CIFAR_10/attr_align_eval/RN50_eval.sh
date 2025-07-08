@@ -1,4 +1,4 @@
-bash scripts/RIVAL_10/attr_align_eval/_attr_align_eval_base.sh "model_zoo/clip" \
+bash scripts/CIFAR_10/attr_align_eval/_attr_align_eval_base.sh "model_zoo/clip" \
 "clip:RN50" \
 "concept_banks/multimodal_concept_clip_RN50_rival10.pkl" \
 "pcbm" \

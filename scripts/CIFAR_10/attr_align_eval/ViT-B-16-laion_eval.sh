@@ -1,4 +1,4 @@
-bash scripts/RIVAL_10/attr_align_eval/_attr_align_eval_base.sh "laion2b-s34b-b88K" \
+bash scripts/CIFAR_10/attr_align_eval/_attr_align_eval_base.sh "laion2b-s34b-b88K" \
 "open_clip:ViT-B-16" \
 "concept_banks/multimodal_concept_open_clip_ViT-B-16_rival10.pkl" \
 "pcbm" \

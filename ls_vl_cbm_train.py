@@ -27,6 +27,7 @@ from pcbm.models import PosthocLinearCBM, get_model
 
 from captum.attr import visualization, GradientAttribution, LayerAttribution
 from utils import *
+from models import *
 from asgt import robust_training, ASGT_Legacy
 
 
