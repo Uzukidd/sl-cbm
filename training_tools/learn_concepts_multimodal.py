@@ -142,7 +142,6 @@ def learn_conceptbank(args, concept_list, scenario):
     pickle.dump(concept_dict, open(concept_dict_path, 'wb'))
     print(f"Dumped to : {concept_dict_path}")
 
-
 if __name__ == "__main__":
     args = config()
     backbone = load_backbone(args)
@@ -187,5 +186,7 @@ if __name__ == "__main__":
         learn_conceptbank(args, RIVAL10_features._ALL_ATTRS, args.classes)
     elif args.classes == "rival10_CSSCBM":
         learn_conceptbank(args, RIVAL10_features._ZERO_SHOT_ATTRS, args.classes)
+    elif args.classes == "smiling_celebA":
+        learn_conceptbank(args, celebA_features.smiling_concepts, args.classes)
     else:
         raise ValueError(f"Unknown classes: {args.classes}. Define your dataset here!")

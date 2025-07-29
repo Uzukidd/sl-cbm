@@ -6,12 +6,17 @@ import torchvision.transforms as transforms
 import os
 from tqdm import tqdm
 
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
 from rival10.constants import RIVAL10_constants
 from .model_utils import *
 from .visual_utils import *
 from .constants import *
 from .explain_utils import *
 from .common_utils import *
+from .intervene_utils import *
 from typing import Callable, Dict, Tuple
 
 eps = 1e-10
@@ -83,7 +88,7 @@ class attribution_metric:
             )
 
     def load_from_path(self, path: str):
-        format_dict = torch.load(path)
+        format_dict = torch.load(path, weights_only=False)
         self.name = format_dict["name"]
 
         # self.amount = {k:v for k, v in format_dict["amount"].items()}
@@ -105,7 +110,7 @@ class attribution_metric:
         concept_name: list[str],
         full_text: bool = False,
         latex: bool = False,
-        sep:str = "",
+        sep: str = "",
     ) -> str:
         totall_metric = {}
         all_metric = {}
@@ -121,8 +126,8 @@ class attribution_metric:
 
         if latex:
             metric_template = "\t{iou:.2f}{sep}\t{dice:.2f}{sep}\t{prec_iou:.2f}{sep}"
-            formatted_str = metric_template.format(sep = sep,
-                **{k: t * 100 for k, t in all_metric.items()}
+            formatted_str = metric_template.format(
+                sep=sep, **{k: t * 100 for k, t in all_metric.items()}
             )
         else:
             header = "\t\t\tIoU\tDice\tPrecIoU\n"
@@ -169,7 +174,7 @@ class class_attribution_metric(attribution_metric):
             self.value[metric][label] += attribution_metric[metric]
 
     def load_from_path(self, path: str):
-        format_dict = torch.load(path)
+        format_dict = torch.load(path, weights_only=False)
         self.name = format_dict["name"]
 
         # self.amount = {k:v for k, v in format_dict["amount"].items()}
@@ -186,7 +191,11 @@ class class_attribution_metric(attribution_metric):
         }
 
     def format_output(
-        self, classes_name: list[str], full_text: bool = False, latex: bool = False, sep:str = "",
+        self,
+        classes_name: list[str],
+        full_text: bool = False,
+        latex: bool = False,
+        sep: str = "",
     ) -> str:
         totall_metric = {}
         all_metric = {}
@@ -202,8 +211,8 @@ class class_attribution_metric(attribution_metric):
 
         if latex:
             metric_template = "\t{iou:.2f}{sep}\t{dice:.2f}{sep}\t{prec_iou:.2f}{sep}"
-            formatted_str = metric_template.format(sep = sep,
-                **{k: t * 100 for k, t in all_metric.items()}
+            formatted_str = metric_template.format(
+                sep=sep, **{k: t * 100 for k, t in all_metric.items()}
             )
         else:
             header = "\t\t\tIoU\tDice\tPrecIoU\n"
@@ -311,6 +320,7 @@ def collect_class_attribution(
 
     return weighted_attribution
 
+
 def save_topK_image(
     ind_class_name: str,
     ind_X: torch.Tensor,
@@ -330,6 +340,7 @@ def save_topK_image(
                 f"{ind_class_name}-{attr_name}-{prefix}",
                 save_to,
             )
+
 
 def save_key_image(
     ind_class_name: str,
@@ -532,10 +543,19 @@ def interpret_all_concept(
                 for k in range(top5_pred_indices.size(0)):
                     index = top5_pred_indices[k]
                     binarized_concepts_attribution = torch.maximum(
-                        concepts_attribution[index], concepts_attribution[index].new_zeros(concepts_attribution[index].size())
+                        concepts_attribution[index],
+                        concepts_attribution[index].new_zeros(
+                            concepts_attribution[index].size()
+                        ),
                     )
                     # binarized_concepts_attribution = normalize(binarized_concepts_attribution)
-                    viz_attn_only(ind_X, binarized_concepts_attribution, True, f"topK-{ind_class_name}-{idx}:{batch_mask}-{k}-{index}", topK_save_to)
+                    viz_attn_only(
+                        ind_X,
+                        binarized_concepts_attribution,
+                        True,
+                        f"topK-{ind_class_name}-{idx}:{batch_mask}-{k}-{index}",
+                        topK_save_to,
+                    )
 
     # if save_saliency_map:
     #     saliency_map_pack["concepts_saliency_map"] = torch.stack(saliency_map_pack["concepts_saliency_map"])  #[N, 18, 1, H, W]
@@ -548,145 +568,145 @@ def interpret_all_concept(
     )
 
 
-def cub_interpret_all_concept(
-    args,
-    model: CBM_Net,
-    data_loader: DataLoader,
-    explain_algorithm_forward: Callable,
-    explain_concept: torch.Tensor,
-):
+# def cub_interpret_all_concept(
+#     args,
+#     model: CBM_Net,
+#     data_loader: DataLoader,
+#     explain_algorithm_forward: Callable,
+#     explain_concept: torch.Tensor,
+# ):
 
-    class_save_to = os.path.join(args.save_path, "images", "class")
+#     class_save_to = os.path.join(args.save_path, "images", "class")
 
-    # Prepare weighted class attribution
-    topk_concept_indice, topk_concept_weights = (
-        model.get_topK_concepts()
-    )  # [C, K], [C, K]
+#     # Prepare weighted class attribution
+#     topk_concept_indice, topk_concept_weights = (
+#         model.get_topK_concepts()
+#     )  # [C, K], [C, K]
 
-    for idx, (images, class_labels, concept_labels, use_concept_labels) in enumerate(tqdm(data_loader)):
-        images = images.squeeze().to(args.device)
-        class_labels = class_labels.squeeze().to(args.device)
-        concept_labels = concept_labels.squeeze().to(args.device)
+#     for idx, (images, class_labels, concept_labels, use_concept_labels) in enumerate(tqdm(data_loader)):
+#         images = images.squeeze().to(args.device)
+#         class_labels = class_labels.squeeze().to(args.device)
+#         concept_labels = concept_labels.squeeze().to(args.device)
 
-        B, C, W, H = image.size()
-        _, K = attr_labels.size()
+#         B, C, W, H = image.size()
+#         _, K = attr_labels.size()
 
-        with torch.no_grad():
-            _, concept_predictions, _ = model(image)
+#         with torch.no_grad():
+#             _, concept_predictions, _ = model(image)
 
-        for batch_mask in range(B):
-            ind_X = image[batch_mask : batch_mask + 1]
-            ind_attr_labels = attr_labels[batch_mask]
-            ind_attr_masks = attr_masks[batch_mask]
-            ind_class_name = class_name[batch_mask]
-            ind_class_label = class_label[batch_mask].item()
+#         for batch_mask in range(B):
+#             ind_X = image[batch_mask : batch_mask + 1]
+#             ind_attr_labels = attr_labels[batch_mask]
+#             ind_attr_masks = attr_masks[batch_mask]
+#             ind_class_name = class_name[batch_mask]
+#             ind_class_label = class_label[batch_mask].item()
 
-            # Get active labels
-            k_val = int(torch.sum(ind_attr_labels).item())
-            valid_concepts_mask = torch.zeros_like(ind_attr_labels)
-            _, top_pred_indices = torch.topk(
-                concept_predictions[batch_mask], k=k_val, dim=-1
-            )
-            valid_concepts_mask[top_pred_indices] = 1
-            valid_concepts_mask = valid_concepts_mask & ind_attr_labels
+#             # Get active labels
+#             k_val = int(torch.sum(ind_attr_labels).item())
+#             valid_concepts_mask = torch.zeros_like(ind_attr_labels)
+#             _, top_pred_indices = torch.topk(
+#                 concept_predictions[batch_mask], k=k_val, dim=-1
+#             )
+#             valid_concepts_mask[top_pred_indices] = 1
+#             valid_concepts_mask = valid_concepts_mask & ind_attr_labels
 
-            # Explain concepts
-            model.zero_grad()
-            concepts_attribution: torch.Tensor = explain_algorithm_forward(
-                batch_X=ind_X, target=explain_concept
-            )  # [18, 1, H, W]
+#             # Explain concepts
+#             model.zero_grad()
+#             concepts_attribution: torch.Tensor = explain_algorithm_forward(
+#                 batch_X=ind_X, target=explain_concept
+#             )  # [18, 1, H, W]
 
-            classes_attribution: torch.Tensor = CBM_Net.attribute_weighted_class(
-                concepts_attribution,
-                topk_concept_weights[ind_class_label],
-                topk_concept_indice[ind_class_label],
-            )
-            # [1, 1, H, W]
+#             classes_attribution: torch.Tensor = CBM_Net.attribute_weighted_class(
+#                 concepts_attribution,
+#                 topk_concept_weights[ind_class_label],
+#                 topk_concept_indice[ind_class_label],
+#             )
+#             # [1, 1, H, W]
 
-            # # Save saliency map while remaining batch dimension
-            # if save_saliency_map:
-            #     saliency_map_pack["concepts_saliency_map"].append(concepts_attribution.detach().cpu())
-            #     saliency_map_pack["classes_saliency_map"].append(classes_attribution.detach().cpu())
+#             # # Save saliency map while remaining batch dimension
+#             # if save_saliency_map:
+#             #     saliency_map_pack["concepts_saliency_map"].append(concepts_attribution.detach().cpu())
+#             #     saliency_map_pack["classes_saliency_map"].append(classes_attribution.detach().cpu())
 
-            # ----------
-            # Concepts segmentation metric
-            # ----------
-            concepts_metric = attribution_iou(
-                concepts_attribution.sum(dim=1, keepdim=True),
-                ind_attr_masks,
-                ind_X=ind_X,
-                binarize_or_not=True,
-            )
-            concepts_metric = attribution_metric.pack_tuple(concepts_metric)
-            concepts_segmentation_metric.update(
-                ind_class_label, concepts_metric, ind_attr_labels, valid_concepts_mask
-            )
+#             # ----------
+#             # Concepts segmentation metric
+#             # ----------
+#             concepts_metric = attribution_iou(
+#                 concepts_attribution.sum(dim=1, keepdim=True),
+#                 ind_attr_masks,
+#                 ind_X=ind_X,
+#                 binarize_or_not=True,
+#             )
+#             concepts_metric = attribution_metric.pack_tuple(concepts_metric)
+#             concepts_segmentation_metric.update(
+#                 ind_class_label, concepts_metric, ind_attr_labels, valid_concepts_mask
+#             )
 
-            # ----------
-            # Weighted concepts segmentation metric
-            # ----------
-            weighted_metric = attribution_iou(
-                concepts_attribution.sum(dim=1, keepdim=True),
-                ind_attr_masks,
-                ind_X=ind_X,
-                binarize_or_not=False,
-            )
-            weighted_metric = attribution_metric.pack_tuple(weighted_metric)
-            weighted_cocnepts_metric.update(
-                ind_class_label, weighted_metric, ind_attr_labels, valid_concepts_mask
-            )
+#             # ----------
+#             # Weighted concepts segmentation metric
+#             # ----------
+#             weighted_metric = attribution_iou(
+#                 concepts_attribution.sum(dim=1, keepdim=True),
+#                 ind_attr_masks,
+#                 ind_X=ind_X,
+#                 binarize_or_not=False,
+#             )
+#             weighted_metric = attribution_metric.pack_tuple(weighted_metric)
+#             weighted_cocnepts_metric.update(
+#                 ind_class_label, weighted_metric, ind_attr_labels, valid_concepts_mask
+#             )
 
-            # ----------
-            # Classes segmentation metric
-            # ----------
-            classes_metric = attribution_iou(
-                classes_attribution,
-                ind_attr_masks[-1:],
-                ind_X=ind_X,
-                binarize_or_not=True,
-            )
-            classes_metric = attribution_metric.pack_tuple(classes_metric)
-            classes_segmentation_metric.update(ind_class_label, classes_metric)
+#             # ----------
+#             # Classes segmentation metric
+#             # ----------
+#             classes_metric = attribution_iou(
+#                 classes_attribution,
+#                 ind_attr_masks[-1:],
+#                 ind_X=ind_X,
+#                 binarize_or_not=True,
+#             )
+#             classes_metric = attribution_metric.pack_tuple(classes_metric)
+#             classes_segmentation_metric.update(ind_class_label, classes_metric)
 
-            # Save preview image
-            if idx < 100 and args.batch_vis:
-                save_key_image(
-                    ind_class_name,
-                    ind_X,
-                    concepts_attribution.sum(dim=1, keepdim=True),
-                    ind_attr_masks,
-                    f"{idx}:{batch_mask}",
-                    concept_save_to,
-                )
-                __vis_ind_image(
-                    ind_X,
-                    classes_attribution,
-                    ind_attr_masks,
-                    -1,
-                    f"{ind_class_name}-{idx}:{batch_mask}",
-                    class_save_to,
-                )
-                _, top5_pred_indices = torch.topk(
-                    concept_predictions[batch_mask], k=5, dim=-1
-                )
+#             # Save preview image
+#             if idx < 100 and args.batch_vis:
+#                 save_key_image(
+#                     ind_class_name,
+#                     ind_X,
+#                     concepts_attribution.sum(dim=1, keepdim=True),
+#                     ind_attr_masks,
+#                     f"{idx}:{batch_mask}",
+#                     concept_save_to,
+#                 )
+#                 __vis_ind_image(
+#                     ind_X,
+#                     classes_attribution,
+#                     ind_attr_masks,
+#                     -1,
+#                     f"{ind_class_name}-{idx}:{batch_mask}",
+#                     class_save_to,
+#                 )
+#                 _, top5_pred_indices = torch.topk(
+#                     concept_predictions[batch_mask], k=5, dim=-1
+#                 )
 
-                for k in range(top5_pred_indices.size(0)):
-                    index = top5_pred_indices[k]
-                    binarized_concepts_attribution = torch.maximum(
-                        concepts_attribution[index], concepts_attribution[index].new_zeros(concepts_attribution[index].size())
-                    )
-                    # binarized_concepts_attribution = normalize(binarized_concepts_attribution)
-                    viz_attn_only(ind_X, binarized_concepts_attribution, True, f"topK-{ind_class_name}-{idx}:{batch_mask}-{k}-{index}", topK_save_to)
+#                 for k in range(top5_pred_indices.size(0)):
+#                     index = top5_pred_indices[k]
+#                     binarized_concepts_attribution = torch.maximum(
+#                         concepts_attribution[index], concepts_attribution[index].new_zeros(concepts_attribution[index].size())
+#                     )
+#                     # binarized_concepts_attribution = normalize(binarized_concepts_attribution)
+#                     viz_attn_only(ind_X, binarized_concepts_attribution, True, f"topK-{ind_class_name}-{idx}:{batch_mask}-{k}-{index}", topK_save_to)
 
-    # if save_saliency_map:
-    #     saliency_map_pack["concepts_saliency_map"] = torch.stack(saliency_map_pack["concepts_saliency_map"])  #[N, 18, 1, H, W]
-    #     saliency_map_pack["classes_saliency_map"] =  torch.stack(saliency_map_pack["classes_saliency_map"])  #[N, 1, 1, H, W]
+#     # if save_saliency_map:
+#     #     saliency_map_pack["concepts_saliency_map"] = torch.stack(saliency_map_pack["concepts_saliency_map"])  #[N, 18, 1, H, W]
+#     #     saliency_map_pack["classes_saliency_map"] =  torch.stack(saliency_map_pack["classes_saliency_map"])  #[N, 1, 1, H, W]
 
-    return (
-        concepts_segmentation_metric,
-        classes_segmentation_metric,
-        weighted_cocnepts_metric,
-    )
+#     return (
+#         concepts_segmentation_metric,
+#         classes_segmentation_metric,
+#         weighted_cocnepts_metric,
+#     )
 
 
 def compute_adi(
@@ -698,15 +718,13 @@ def compute_adi(
     concepts_avg_drop_list = []
     concepts_avg_inc_list = []
     concepts_avg_gain_list = []
-    
+
     classes_avg_drop_list = []
     classes_avg_inc_list = []
     classes_avg_gain_list = []
-    
-    topk_concept_indice, topk_concept_weights = (
-        model.get_topK_concepts()
-    ) 
-    
+
+    topk_concept_indice, topk_concept_weights = model.get_topK_concepts()
+
     for idx, data in enumerate(tqdm(data_loader)):
         if isinstance(data, dict):
             image: torch.Tensor = data["img"].to(args.device)
@@ -719,13 +737,13 @@ def compute_adi(
 
             if isinstance(attr_labels, list):
                 attr_labels = torch.stack(attr_labels).permute((1, 0))
-            
+
             if not isinstance(class_label, torch.Tensor):
                 class_label = torch.Tensor(class_label)
-            
+
             class_label = class_label.to(args.device)
             attr_labels = attr_labels.to(args.device)
-                
+
         if image.shape.__len__() > 4:
             image = image.view(-1, *image.shape[-3:])
             attr_labels = attr_labels.view(-1, attr_labels.shape[-1])
@@ -748,20 +766,21 @@ def compute_adi(
                 batch_X=ind_X, target=ind_attr_labels.nonzero().view(-1)
             )  # [K, 1, H, W]
             concepts_attribution = concepts_attribution.sum(dim=1, keepdim=True)
-            
+
             concepts_attribution = (
                 concepts_attribution
                 - concepts_attribution.amin(dim=(1, 2, 3))[:, None, None, None]
             ) / (
                 concepts_attribution.amax(dim=(1, 2, 3))
                 - concepts_attribution.amin(dim=(1, 2, 3))
-            )[:, None, None, None]  # [K, 1, H, W]
-            
-            
+            )[
+                :, None, None, None
+            ]  # [K, 1, H, W]
+
             all_explain_concept: torch.Tensor = torch.arange(
                 0, ind_attr_labels.size(-1)
             ).to(args.device)
-            
+
             all_concepts_attribution: torch.Tensor = explain_algorithm_forward(
                 batch_X=ind_X, target=all_explain_concept
             )
@@ -771,14 +790,16 @@ def compute_adi(
                 topk_concept_weights[ind_class_label],
                 topk_concept_indice[ind_class_label],
             )
-            
+
             classes_attribution = (
                 classes_attribution
                 - classes_attribution.amin(dim=(1, 2, 3))[:, None, None, None]
             ) / (
                 classes_attribution.amax(dim=(1, 2, 3))
                 - classes_attribution.amin(dim=(1, 2, 3))
-            )[:, None, None, None]  # [K, 1, H, W]
+            )[
+                :, None, None, None
+            ]  # [K, 1, H, W]
 
             masked_image = concepts_attribution * ind_X  # [K, C, H, W]
             avg_drop, avg_inc, avg_gain = concepts_adi(
@@ -790,7 +811,7 @@ def compute_adi(
             concepts_avg_drop_list.append(avg_drop)
             concepts_avg_inc_list.append(avg_inc)
             concepts_avg_gain_list.append(avg_gain)
-            
+
             masked_image = classes_attribution * ind_X  # [K, C, H, W]
             avg_drop, avg_inc, avg_gain = concepts_adi(
                 model.encode_as_concepts,
@@ -810,46 +831,6 @@ def compute_adi(
         torch.stack(classes_avg_inc_list).mean(),
         torch.stack(classes_avg_gain_list).mean(),
     )
-
-
-def concepts_adi(
-    model: Callable,
-    images: torch.Tensor,
-    masked_images: torch.Tensor,
-    active_labels: Union[torch.Tensor, int],
-):
-    """
-    Args:
-        model: nn.Module
-        images: [1, 3, H, W]
-        masked_images: [K, 3, H, W]
-        active_labels: [1, D] where sum(active_labels) == K
-
-        where K -> active concept label, D -> concept label
-
-    """
-    images = images
-    masked_images = masked_images
-
-    concepts_logits = None
-    masked_concepts_logits = None
-    with torch.no_grad():
-        concepts_logits: torch.Tensor = model(images)  # [1, D]
-        masked_concepts_logits: torch.Tensor = model(masked_images)  # [1, D]
-
-    if isinstance(active_labels, torch.Tensor):
-        Y = concepts_logits[:, active_labels[0].bool()].sigmoid()  # [1, D] -> [1, K]
-        O = masked_concepts_logits[:, active_labels[0].bool()].sigmoid()  # [1, D] -> [1, K]
-    else:
-        Y = concepts_logits[:, active_labels].sigmoid()  # [1, D] -> [1, 1]
-        O = masked_concepts_logits[:, active_labels].sigmoid()  # [1, D] -> [1, 1]      
-
-    avg_drop = torch.maximum(Y - O, torch.zeros_like(Y)) / Y  # [K, ]
-    avg_gain = torch.maximum(O - Y, torch.zeros_like(Y)) / (1 - Y)  # [K, ]
-    avg_inc = torch.gt(O, Y)  # [K, ]
-
-    return avg_drop.mean(), avg_inc.float().mean(), avg_gain.mean()
-
 
 def estimate_top_concepts_accuracy(concept_predictions, concept_labels):
     bs = concept_predictions.shape[0]
@@ -895,7 +876,7 @@ def val_one_epoch(val_data_loader: DataLoader, model: CBM_Net, device: torch.dev
                             .permute((1, 0))
                             .to(class_labels.device)
                         )
-                    
+
                     # print(concept_labels)
                     # import pdb;pdb.set_trace()
                 else:
@@ -919,7 +900,8 @@ def val_one_epoch(val_data_loader: DataLoader, model: CBM_Net, device: torch.dev
                     class_labels, (class_labels.shape[0] * 2, 1)
                 ).squeeze()
                 concept_labels = torch.reshape(
-                    concept_labels, (concept_labels.shape[0] * 2, concept_labels.shape[-1])
+                    concept_labels,
+                    (concept_labels.shape[0] * 2, concept_labels.shape[-1]),
                 )
                 if use_concept_labels is not None:
                     use_concept_labels = torch.reshape(
@@ -966,7 +948,29 @@ def eval_model_explainability(
     eval_save_to = os.path.join(args.save_path, "evaluations")
     if not os.path.exists(eval_save_to):
         os.mkdir(eval_save_to)
-        
+
+    if args.intervention:
+        eval_intervention(
+            args, concept_bank, ["adi", "rand", "ucp", "cctp"], dataset.test_loader, model, eval_save_to
+        )
+
+    val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, args.device)
+
+    torch.save(
+        {
+            "test_acc": val_acc,
+            "test_concept_acc": val_concept_acc,
+        },
+        os.path.join(eval_save_to, "accuracy.pt"),
+    )
+    
+    args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
+
+    if "rival" in args.target_dataset:
+        eval_nec(args, dataset.test_loader, model, [5, 10, 15], eval_save_to)
+    elif "celebA" in args.target_dataset:
+        eval_nec(args, dataset.test_loader, model, [5, 7], eval_save_to)
+
     eval_attribution_alignment(
         args,
         preprocess,
@@ -976,15 +980,19 @@ def eval_model_explainability(
         eval_save_to,
     )
 
-    eval_explain_method(args, model, dataset.test_loader, explain_algorithm_forward, eval_save_to)
-    
-    eval_nec(args, dataset.test_loader, model, [5, 10, 15], eval_save_to)
+    eval_explain_method(
+        args, model, dataset.test_loader, explain_algorithm_forward, eval_save_to
+    )
 
-def eval_nec(args,
+
+
+def eval_nec(
+    args,
     data_laoder: DataLoader,
     model: CBM_Net,
-    necs:Tuple[int],
-    eval_save_to: str,):
+    necs: Tuple[int],
+    eval_save_to: str,
+):
     nec_5_acc = 0
     anec_acc = []
     for nec in necs:
@@ -995,7 +1003,13 @@ def eval_nec(args,
             nec_5_acc = acc
         anec_acc.append(acc)
     anec_acc = np.array(anec_acc).mean().item()
-    print(f"NEC-5:{nec_5_acc}, ANEC:{anec_acc}")
+    args.logger.info(f"NEC-5:{nec_5_acc}, ANEC:{anec_acc}")
+    
+    torch.save(
+        {"nec5": nec_5_acc, "anec": anec_acc},
+        os.path.join(eval_save_to, "nec.pt"),
+    )
+
 
 def eval_attribution_alignment(
     args,
@@ -1006,89 +1020,372 @@ def eval_attribution_alignment(
     eval_save_to: str,
 ):
     model.eval()
-
-    rival10_dataset = load_dataset(
-        dataset_configure(
-            dataset="rival10_full",
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-        ),
-        preprocess,
-    )
-
-    explain_concept: torch.Tensor = torch.arange(
-        0, concept_bank.concept_info.concept_names.__len__()
-    ).to(args.device)
-
-    # Start Rival attrbution alignment evaluation
-    (
-        concepts_segmentation_metric,
-        classes_segmentation_metric,
-        weighted_cocnepts_metric,
-    ) = interpret_all_concept(
-        args,
-        model,
-        rival10_dataset.test_loader,
-        explain_algorithm_forward,
-        explain_concept,
-    )
-
-    args.logger.info(
-        concepts_segmentation_metric.format_output(
-            RIVAL10_constants._ALL_CLASSNAMES,
-            concept_bank.concept_info.concept_names,
+    if args.target_dataset == "rival10_full":
+        rival10_dataset = load_dataset(
+            dataset_configure(
+                dataset="rival10_full",
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+            ),
+            preprocess,
         )
-    )
-    args.logger.info(
-        weighted_cocnepts_metric.format_output(
-            RIVAL10_constants._ALL_CLASSNAMES,
-            concept_bank.concept_info.concept_names,
-        )
-    )
-    args.logger.info(
-        classes_segmentation_metric.format_output(RIVAL10_constants._ALL_CLASSNAMES)
-    )
 
-    torch.save(
-        concepts_segmentation_metric.format_dict(),
-        os.path.join(eval_save_to, "concepts_segmentation_metric.pt"),
-    )
-    torch.save(
-        weighted_cocnepts_metric.format_dict(),
-        os.path.join(eval_save_to, "weighted_cocnepts_metric.pt"),
-    )
-    torch.save(
-        classes_segmentation_metric.format_dict(),
-        os.path.join(eval_save_to, "classes_segmentation_metric.pt"),
-    )
+        explain_concept: torch.Tensor = torch.arange(
+            0, concept_bank.concept_info.concept_names.__len__()
+        ).to(args.device)
+
+        # Start Rival attrbution alignment evaluation
+        (
+            concepts_segmentation_metric,
+            classes_segmentation_metric,
+            weighted_cocnepts_metric,
+        ) = interpret_all_concept(
+            args,
+            model,
+            rival10_dataset.test_loader,
+            explain_algorithm_forward,
+            explain_concept,
+        )
+
+        args.logger.info(
+            concepts_segmentation_metric.format_output(
+                RIVAL10_constants._ALL_CLASSNAMES,
+                concept_bank.concept_info.concept_names,
+            )
+        )
+        args.logger.info(
+            weighted_cocnepts_metric.format_output(
+                RIVAL10_constants._ALL_CLASSNAMES,
+                concept_bank.concept_info.concept_names,
+            )
+        )
+        args.logger.info(
+            classes_segmentation_metric.format_output(RIVAL10_constants._ALL_CLASSNAMES)
+        )
+
+        torch.save(
+            concepts_segmentation_metric.format_dict(),
+            os.path.join(eval_save_to, "concepts_segmentation_metric.pt"),
+        )
+        torch.save(
+            weighted_cocnepts_metric.format_dict(),
+            os.path.join(eval_save_to, "weighted_cocnepts_metric.pt"),
+        )
+        torch.save(
+            classes_segmentation_metric.format_dict(),
+            os.path.join(eval_save_to, "classes_segmentation_metric.pt"),
+        )
     # torch.save(saliency_map_pack, os.path.join(eval_save_to, "saliency_map_pack.pt"))
 
 
 def eval_explain_method(
-    args, model: CBM_Net, data_loader: DataLoader, explain_algorithm_forward: Callable, eval_save_to: str,
+    args,
+    model: CBM_Net,
+    data_loader: DataLoader,
+    explain_algorithm_forward: Callable,
+    eval_save_to: str,
 ):
-    concepts_avg_drop, concepts_avg_inc, concepts_avg_gain, classes_avg_drop, classes_avg_inc, classes_avg_gain = compute_adi(
+    (
+        concepts_avg_drop,
+        concepts_avg_inc,
+        concepts_avg_gain,
+        classes_avg_drop,
+        classes_avg_inc,
+        classes_avg_gain,
+    ) = compute_adi(
         args,
         model,
         data_loader,
         explain_algorithm_forward,
     )
-    
+
     res_dict = {
-            "concepts_avg_drop": concepts_avg_drop,
-            "concepts_avg_inc" : concepts_avg_inc,
-            "concepts_avg_gain": concepts_avg_gain,
-            "classes_avg_drop": classes_avg_drop,
-            "classes_avg_inc" : classes_avg_inc,
-            "classes_avg_gain": classes_avg_gain,
-        }
-    
+        "concepts_avg_drop": concepts_avg_drop,
+        "concepts_avg_inc": concepts_avg_inc,
+        "concepts_avg_gain": concepts_avg_gain,
+        "classes_avg_drop": classes_avg_drop,
+        "classes_avg_inc": classes_avg_inc,
+        "classes_avg_gain": classes_avg_gain,
+    }
+
     args.logger.info("Concepts:")
-    args.logger.info(f"avg_drop: {concepts_avg_drop * 100:.2f}\\%, avg_inc: {concepts_avg_inc * 100:.2f}\\%, avg_gain: {concepts_avg_gain * 100:.2f}\\%")
-    
+    args.logger.info(
+        f"avg_drop: {concepts_avg_drop * 100:.2f}\\%, avg_inc: {concepts_avg_inc * 100:.2f}\\%, avg_gain: {concepts_avg_gain * 100:.2f}\\%"
+    )
+
     args.logger.info("Class:")
-    args.logger.info(f"avg_drop: {classes_avg_drop * 100:.2f}\\%, avg_inc: {classes_avg_inc * 100:.2f}\\%, avg_gain: {classes_avg_gain * 100:.2f}\\%")
+    args.logger.info(
+        f"avg_drop: {classes_avg_drop * 100:.2f}\\%, avg_inc: {classes_avg_inc * 100:.2f}\\%, avg_gain: {classes_avg_gain * 100:.2f}\\%"
+    )
 
     torch.save(res_dict, os.path.join(eval_save_to, "adi_pack.pt"))
-    
+
+    print(f"nan: {concepts_adi.nan}")
+    print(f"total: {concepts_adi.total}")
+
     return res_dict
+
+
+def eval_intervention(
+    args,
+    concept_bank: ConceptBank,
+    intervention_methods: list[str],
+    data_loader: DataLoader,
+    model: CBM_Net,
+    eval_save_to: str,
+):
+
+    # assert len(instance_attr_labels) == len(b_attr_labels), 'len(instance_attr_labels): %d, len(b_attr_labels): %d' % (
+    # len(instance_attr_labels), len(b_attr_labels))
+    # assert len(uncertainty_attr_labels) == len(
+    #     b_attr_labels), 'len(uncertainty_attr_labels): %d, len(b_attr_labels): %d' % (
+    # len(uncertainty_attr_labels), len(b_attr_labels))
+
+    # if n_replace == 1 or n_replace == 0:
+    #     b_attr_new = np.array(b_attr_outputs[:])
+    # else:
+    #     b_attr_new = b_attr_intervened
+
+    # attr_replace_idx = []
+    # all_attr_ids = []
+
+    # if n_replace > 0:
+    #     if batch_intervention:
+    #         if intervention_ckpt is not None:
+    #             start_idx = intervention_ckpt[n_replace - 1]
+    #             end_idx = intervention_ckpt[n_replace]
+    #             concept_idx = intervention_order[trial][start_idx:end_idx]
+    #         else:
+    #             start_idx = (n_replace - 1) * len(b_class_labels)
+    #             end_idx = n_replace * len(b_class_labels)
+    #             concept_idx = intervention_order[trial][start_idx:end_idx]
+    #         # if group_intervention:
+    #         #     for concept_id in concept_idx:
+    #         #         group_idx = concept_id % args.n_groups
+    #         #         img_id = concept_id // args.n_groups
+    #         #         replace_idx = attr_group_dict[group_idx]
+    #         #         all_attr_ids.extend(replace_idx)
+    #         #         attr_replace_idx.extend(np.array(replace_idx) + img_id * args.n_attributes)
+    #         # else:
+    #         replace_idx = concept_idx
+    #         all_attr_ids.extend(np.array(replace_idx) % args.n_attributes)
+    #         attr_replace_idx.extend(np.array(replace_idx))
+    #     else: # single intervention
+    #         for img_id in range(len(b_class_labels)):
+    #             if group_intervention:
+    #                 group_idx = intervention_order[trial][img_id][n_replace-1]
+    #                 replace_idx = attr_group_dict[group_idx]
+    #             else:
+    #                 concept_idx = intervention_order[trial][img_id][n_replace-1]
+    #                 replace_idx = [concept_idx]
+    #             all_attr_ids.extend(replace_idx)
+    #             attr_replace_idx.extend(np.array(replace_idx) + img_id * args.n_attributes)
+    #     if replace_val == 'class_level':
+    #         b_attr_new[attr_replace_idx] = np.array(b_attr_labels)[attr_replace_idx]
+    #     else:
+    #         b_attr_new[attr_replace_idx] = np.array(instance_attr_labels)[attr_replace_idx]
+
+    #     # if use_not_visible:
+    #     #     not_visible_idx = np.where(np.array(uncertainty_attr_labels) == 1)[0]
+    #     #     for idx in attr_replace_idx:
+    #     #         if idx in not_visible_idx:
+    #     #             if no_int_invisible:
+    #     #                 if n_replace == 1:
+    #     #                     b_attr_new[idx] = b_attr_outputs_sigmoid[idx]
+    #     #                 else:
+    #     #                     b_attr_new[idx] = b_attr_intervened[idx]
+    #     #             else:
+    #     #                 b_attr_new[idx] = 0
+
+    #     # if use_relu or not use_sigmoid:  # replace with percentile values
+    #     #     binary_vals = b_attr_new[attr_replace_idx]
+    #     #     for j, replace_idx in enumerate(attr_replace_idx):
+    #     #         attr_idx = replace_idx % args.n_attributes
+    #     #         b_attr_new[replace_idx] = (1 - binary_vals[j]) * ptl_5[attr_idx] + binary_vals[j] * ptl_95[attr_idx]
+
+    # # stage 2: calcaulte the label prediction error
+    # # K = [1, 3, 5]
+    # model2.eval()
+
+    intervention_taskerror = {
+        
+    }
+    
+    explain_algorithm: GradientAttribution = getattr(
+        model_explain_algorithm_factory, args.explain_method
+    )(forward_func=model.encode_as_concepts, model=model)
+    explain_algorithm_forward: Callable = getattr(
+        model_explain_algorithm_forward, args.explain_method
+    )
+    explain_algorithm_forward = partial(
+        explain_algorithm_forward, explain_algorithm=explain_algorithm
+    )
+    
+    for intervention_method in intervention_methods:
+        for idx, data in enumerate(tqdm(data_loader)):
+            if isinstance(data, dict):
+                image: torch.Tensor = data["img"].to(args.device)
+                attr_labels: torch.Tensor = data["attr_labels"].to(args.device)
+                class_label: torch.Tensor = data["og_class_label"].to(args.device)
+            else:
+                image: torch.Tensor = data[0].to(args.device)
+                class_label = data[1]
+                attr_labels = data[2]
+
+                if isinstance(attr_labels, list):
+                    attr_labels = torch.stack(attr_labels).permute((1, 0))
+
+                if not isinstance(class_label, torch.Tensor):
+                    class_label = torch.Tensor(class_label)
+
+                class_label = class_label.to(args.device)
+                attr_labels = attr_labels.to(args.device)
+
+            if image.shape.__len__() > 4:
+                image = image.view(-1, *image.shape[-3:])
+                attr_labels = attr_labels.view(-1, attr_labels.shape[-1])
+
+            B, C, W, H = image.size()
+            _, K = attr_labels.size()
+
+            batch_intervene_mask = torch.zeros_like(attr_labels).bool()
+
+            concepts_predicted = model.encode_as_concepts(image)  # torch.Size([8, 18])
+            batch_seq_mask = torch.arange(B).unsqueeze(1)
+            
+            # inactive_label = torch.zeros_like(attr_labels)
+            # active_label = torch.ones_like(attr_labels)
+            
+            concepts_predicted_sigmoid = concepts_predicted
+            if not model.IS_CONCEPT_PROBABILITY_SPACE:
+                concepts_predicted_sigmoid = concepts_predicted.sigmoid()
+                inactive_label = torch.quantile(concepts_predicted_sigmoid, q=0.05, dim=1)
+                active_label = torch.quantile(concepts_predicted_sigmoid, q=0.95, dim=1)
+                
+                mapped_attr_labels = torch.where(attr_labels == 1, active_label.unsqueeze(1).expand_as(attr_labels), attr_labels)
+                mapped_attr_labels = torch.where(attr_labels == 0, inactive_label.unsqueeze(1).expand_as(attr_labels), mapped_attr_labels)
+                attr_labels = mapped_attr_labels
+
+            all_intervention_order = calculate_intervention_order(
+                intervention_method,
+                model,
+                image,
+                concepts_predicted_sigmoid,
+                attr_labels,
+                K,
+                batch_intervention=True,
+                explain_algorithm_forward=explain_algorithm_forward,
+                n_trials=1,
+            )
+            intervention_taskerror[intervention_method] = []
+
+            taskerror = []
+            for n_replace in range(K + 1):
+                intervened_concepts = torch.where(
+                    batch_intervene_mask, attr_labels, concepts_predicted
+                )
+                output_Y = model.forward_projs(intervened_concepts)
+                taskerror.append(1.0 - (output_Y.argmax(-1) == class_label).float().mean())
+                # print(accuracy[-1])
+
+                if n_replace < K:
+                    batch_intervene_mask[
+                        batch_seq_mask, all_intervention_order[0][:, n_replace].unsqueeze(1)
+                    ] = True
+
+            intervention_taskerror[intervention_method].append(taskerror)
+
+        intervention_taskerror[intervention_method] = torch.Tensor(intervention_taskerror[intervention_method])
+    # df = pd.DataFrame(
+    #     {
+    #         "Index": range(intervention_accuracy.size(0)),
+    #         "Value": intervention_accuracy.numpy(),
+    #     }
+    # )
+    x = torch.linspace(0, 18, 19)
+    draw_intervention_graph(x, intervention_taskerror, title = f"{args.pcbm_arch} - {args.backbone_name}")
+
+    # b_attr_new = b_attr_new.reshape(-1, args.n_attributes)
+    # stage2_inputs = torch.from_numpy(np.array(b_attr_new)).cuda()
+    # if inference_mode == 'soft' or inference_mode == 'hard':
+    #     if inference_mode == 'hard':
+    #         stage2_inputs = stage2_inputs >= (torch.ones_like(stage2_inputs) * 0.5)
+    #         stage2_inputs = stage2_inputs.float()
+    #     if connect_CY:  # class_outputs is currently contributed by C --> Y
+    #         new_cy_outputs = model2(stage2_inputs)
+    #         old_stage2_inputs = torch.from_numpy(np.array(b_attr_outputs).reshape(-1, args.n_attributes)).cuda()
+    #         old_cy_outputs = model2(old_stage2_inputs)
+    #         class_outputs = torch.from_numpy(b_class_logits).cuda() + (new_cy_outputs - old_cy_outputs)
+    #     else:
+    #         class_outputs = model2(stage2_inputs)
+    # elif inference_mode == 'samp':
+    #     class_outputs_all = []
+    #     for _ in range(mc_samples):
+    #         rand_num = torch.rand(*stage2_inputs.size())
+    #         sampled_stage2_inputs = rand_num.cuda() < stage2_inputs
+    #         sampled_stage2_inputs = sampled_stage2_inputs.float()
+    #         if connect_CY:  # class_outputs is currently contributed by C --> Y
+    #             new_cy_outputs = model2(sampled_stage2_inputs)
+    #             old_stage2_inputs = torch.from_numpy(np.array(b_attr_outputs).reshape(-1, args.n_attributes)).cuda()
+    #             old_cy_outputs = model2(old_stage2_inputs)
+    #             _class_outputs = torch.from_numpy(b_class_logits).cuda() + (new_cy_outputs - old_cy_outputs)
+    #         else:
+    #             _class_outputs = model2(sampled_stage2_inputs)
+    #         class_outputs_all.append(_class_outputs)
+    #     class_outputs = torch.mean(torch.stack(class_outputs_all, axis=0), axis=0)
+
+    # _, preds = class_outputs.topk(1, 1, True, True)
+    # b_class_outputs_new = preds.data.cpu().numpy().squeeze()
+    # class_acc = np.mean(np.array(b_class_outputs_new) == np.array(b_class_labels))
+
+    # incorrect_err_list = []
+    # b_class_outputs_new_numpy = np.array(b_class_outputs_new)
+    # b_class_labels_numpy = np.array(b_class_labels)
+    # for i in range(16):
+    #     idx = incorrect_idx_list[i]
+    #     pred = b_class_outputs_new_numpy[idx]
+    #     label = b_class_labels_numpy[idx]
+    #     incorrect_err_list.append(1 - np.mean(pred == label))
+
+    # eq_arr = np.array(b_class_outputs_new) == np.array(b_class_labels)
+    # return class_acc, incorrect_err_list, eq_arr, b_attr_new.flatten()
+
+def draw_intervention_graph(x, curves, title):
+
+    sns.set_theme(style="whitegrid")
+
+    records = []
+    for label, y_tensor in curves.items():
+        for i in range(y_tensor.shape[1]):
+            for j in range(y_tensor.shape[0]):
+                records.append({
+                    'x': x[i].item(),
+                    'y': y_tensor[j, i].item(),
+                    'label': label,
+                    'batch': j,
+                })
+
+    df = pd.DataFrame(records)
+
+    plt.figure(figsize=(8, 5))
+    sns.lineplot(
+        data=df,
+        x='x',
+        y='y',
+        hue='label',
+        errorbar='sd', 
+        err_style='band', 
+        marker='o'
+    )
+
+    
+    plt.xlim(-0.5, 18.5)
+    plt.ylim(-0.1, 1.1)
+    plt.xticks(np.arange(0, 19, 1))
+    plt.yticks(np.arange(0, 1.1, 0.1))
+    plt.xlabel("Intervention count")
+    plt.ylabel("Task error")
+    plt.title("")
+    plt.legend(title=title)
+    plt.tight_layout()
+    plt.show()

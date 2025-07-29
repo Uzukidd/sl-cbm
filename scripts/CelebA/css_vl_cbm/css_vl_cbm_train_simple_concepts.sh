@@ -1,7 +1,9 @@
 
 python css_vl_cbm_train.py --backbone-name="open_clip:ViT-B-16" \
     --backbone-ckpt="laion2b-s34b-b88K" \
-    --concept-bank="concept_banks/multimodal_concept_open_clip_ViT-B-16_rival10.pkl" \
+    --dataset="css_smiling_celebA" \
+    --target-dataset="smiling_celebA_test" \
+    --concept-bank="concept_banks/multimodal_concept_open_clip:ViT-B-16_smiling_celebA.pkl" \
     --universal-seed="24" \
     --explain-method="layer_grad_cam_vit" \
     --exp-name="css_vl_cbm_train_simple_concepts"

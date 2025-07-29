@@ -55,6 +55,9 @@ def config():
 
     parser.add_argument("--explain-method", type=str)
     parser.add_argument('--evaluate', action='store_true')
+    parser.add_argument('--dataset-scalar', default=None, type=float)
+    parser.add_argument('--intervention', action='store_true')
+
 
     parser.add_argument('--not-save-ckpt', action='store_true')
     parser.add_argument("--batch-vis", action="store_true")

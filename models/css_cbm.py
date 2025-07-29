@@ -10,13 +10,15 @@ from pcbm.concepts import ConceptBank
 
 from typing import Tuple, Callable, Union, Optional
 
-from utils.model_utils import CBM_Net, ResNetBottom, CAV
+from utils.model_utils import CBM_Net, ResNetBottom, CAV, NECLinear
 
 # Contrastive Semi-Supervised (CSS) VL-CBM
 class css_pcbm(CBM_Net):
 
     TRAINABLE_COMPONENTS = ["concept_projection", 
                            "classifier"]
+    
+    IS_CONCEPT_PROBABILITY_SPACE = False
 
     def __init__(self, normalizer, 
                  concept_bank:ConceptBank, 
@@ -49,9 +51,11 @@ class css_pcbm(CBM_Net):
             nn.LayerNorm(token_width),
             nn.Linear(token_width, self.num_of_concepts)
         )
+        
+        self.nec_concepts_projection = NECLinear(self.num_of_concepts, self.num_of_classes, nec=5)
         self.classifier = nn.Sequential(
             nn.LayerNorm(self.num_of_concepts),
-            nn.Linear(self.num_of_concepts, self.num_of_classes),
+            self.nec_concepts_projection,
         )
         
         for name, param in self.named_parameters():
@@ -106,7 +110,7 @@ class css_pcbm(CBM_Net):
                                                          dim=-1))
         concepts = concept_activations + concept_projections
         #     (bs*2,18)         (bs*2,10)
-        return self.classifier(concepts), F.sigmoid(concepts), None
+        return self.classifier(concepts), concepts, None
     
     def direct_encode_as_concepts(self, 
                            batch_X:torch.Tensor) -> torch.Tensor:
@@ -118,7 +122,7 @@ class css_pcbm(CBM_Net):
                                                          dim=-1))
         concepts = concept_activations
         #     (bs*2,18)
-        return F.sigmoid(concepts)
+        return concepts
     
     def encode_as_concepts(self, 
                            batch_X:torch.Tensor) -> torch.Tensor:
@@ -142,7 +146,7 @@ class css_pcbm(CBM_Net):
                                                          dim=-1))
         concepts = concept_activations + concept_projections
         #     (bs*2,18) 
-        return F.sigmoid(concepts)
+        return concepts
 
         
     def forward_projs(self,
@@ -163,4 +167,12 @@ class css_pcbm(CBM_Net):
         top_values = top_values / torch.sum(top_values, dim=1, keepdim=True)
         
         return top_indices, top_values
+    
+    def enable_nec(
+        self,
+        enable:bool,
+        nec:int=5
+    ) -> None:
+        self.nec_concepts_projection.enable_nec = enable
+        self.nec_concepts_projection.nec = nec
 

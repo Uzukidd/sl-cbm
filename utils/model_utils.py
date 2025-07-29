@@ -179,6 +179,9 @@ class CLIPWrapper(nn.Module):
 
 
 class CBM_Net(ABC, nn.Module):
+    
+    IS_CONCEPT_PROBABILITY_SPACE = True
+    IS_CONCEPT_COS_SIMILARITY_SPACE = False
 
     def __init__(self):
         super().__init__()

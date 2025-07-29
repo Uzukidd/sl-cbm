@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import time
 from sklearn.linear_model import SGDClassifier
+from sklearn.multiclass import OneVsRestClassifier
+
 from sklearn.metrics import roc_auc_score
 
 import sys
@@ -40,6 +42,8 @@ def config():
     parser.add_argument("--alpha", default=0.99, type=float, help="Sparsity coefficient for elastic net.")
     parser.add_argument("--lam", default=1e-5, type=float, help="Regularization strength.")
     parser.add_argument("--lr", default=1e-3, type=float)
+    parser.add_argument('--dataset-scalar', default=None, type=float)
+
     return parser.parse_args()
 
 
@@ -73,12 +77,19 @@ def run_linear_probe(args, train_data, test_data):
     run_info = {"train_acc": train_accuracy, "test_acc": test_accuracy,
                 "cls_acc": cls_acc,
                 }
+    
+    if classifier.coef_.shape[0] > 1:
+        coef = classifier.coef_
+        intercept = classifier.intercept_
+    else:
+        coef = np.concatenate([-1 * classifier.coef_, classifier.coef_], axis = 0)
+        intercept = np.concatenate([-1 * classifier.intercept_, classifier.intercept_], axis = 0)
 
     # If it's a binary task, we compute auc
     if test_labels.max() == 1:
         run_info["test_auc"] = roc_auc_score(test_labels, classifier.decision_function(test_features))
         run_info["train_auc"] = roc_auc_score(train_labels, classifier.decision_function(train_features))
-    return run_info, classifier.coef_, classifier.intercept_
+    return run_info, coef, intercept
 
 
 
@@ -93,8 +104,9 @@ def main(args):
     num_classes = len(dataset.class_to_idx)
 
     # We compute the projections and save to the output directory. This is to save time in tuning hparams / analyzing projections.
-    train_projs, train_lbls, test_projs, test_lbls = load_or_compute_projections(args, 
+    train_embs, train_projs, train_lbls, test_embs, test_projs, test_lbls = load_or_compute_projections(args, 
                                                                                 model, 
+                                                                                model.classifier,
                                                                                 dataset.train_loader, 
                                                                                 dataset.test_loader)
     

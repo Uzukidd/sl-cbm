@@ -19,7 +19,7 @@ from open_clip.model import CLIP as open_clip_model_CLIP
 import torch
 import torch.nn as nn
 from torchvision import datasets
-from torch.utils.data import DataLoader, Dataset, Sampler
+from torch.utils.data import DataLoader, Dataset, Sampler, Subset
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data._utils.collate import default_collate
@@ -55,16 +55,17 @@ class dataset_configure:
     dataset: str
     batch_size: int
     num_workers: int
+    dataset_scalar: Optional[float] = None
 
 
 @dataclass
 class dataset_collection:
-    trainset: Dataset
-    testset: Dataset
-    class_to_idx: Dict[str, int]
-    idx_to_class: Dict[int, str]
-    train_loader: DataLoader
-    test_loader: DataLoader
+    trainset: Optional[Dataset]
+    testset: Optional[Dataset]
+    class_to_idx: Optional[Dict[str, int]]
+    idx_to_class: Optional[Dict[int, str]]
+    train_loader: Optional[DataLoader]
+    test_loader: Optional[DataLoader]
 
 
 class class_specific_sampler(Sampler):
@@ -91,6 +92,7 @@ def load_dataset(
             dataset=args.dataset,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
+            dataset_scalar=args.dataset_scalar,
         )
 
     if args.dataset == "cifar10":
@@ -409,6 +411,12 @@ def load_dataset(
             for (i, c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)
         }
         idx_to_class = {v: k for k, v in class_to_idx.items()}
+
+        if args.dataset_scalar is not None:
+            subset_size = int(len(trainset) * args.dataset_scalar)
+            indices = torch.randperm(len(trainset))[:subset_size]
+            trainset = Subset(trainset, indices)
+
         train_loader = DataLoader(
             trainset,
             batch_size=args.batch_size,
@@ -441,6 +449,12 @@ def load_dataset(
             for (i, c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)
         }
         idx_to_class = {v: k for k, v in class_to_idx.items()}
+
+        if args.dataset_scalar is not None:
+            subset_size = int(len(trainset) * args.dataset_scalar)
+            indices = torch.randperm(len(trainset))[:subset_size]
+            trainset = Subset(trainset, indices)
+
         train_loader = DataLoader(
             trainset,
             batch_size=args.batch_size,
@@ -457,13 +471,13 @@ def load_dataset(
     elif args.dataset == "css_rival10":
         from utils import CSS_Rival_Dataset
 
-        train_dataset = CSS_Rival_Dataset(
+        trainset = CSS_Rival_Dataset(
             split="train",
             true_batch_size=args.batch_size,
             percentage_of_concept_labels_for_training=0.01,
             transform=preprocess,
         )
-        test_dataset = CSS_Rival_Dataset(
+        testset = CSS_Rival_Dataset(
             split="test",
             true_batch_size=args.batch_size,
             percentage_of_concept_labels_for_training=0.0,
@@ -475,12 +489,173 @@ def load_dataset(
             for (i, c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)
         }
         idx_to_class = {v: k for k, v in class_to_idx.items()}
+
+        if args.dataset_scalar is not None:
+            subset_size = int(len(trainset) * args.dataset_scalar)
+            indices = torch.randperm(len(trainset))[:subset_size]
+            trainset = Subset(trainset, indices)
+
+        train_loader = DataLoader(trainset, batch_size=1, shuffle=False, num_workers=16)
+        test_loader = DataLoader(testset, batch_size=1, shuffle=False, num_workers=16)
+    elif args.dataset == "spss_rival10_gridsearch":
+        from torch.utils.data import random_split
+
+        trainset = LocalRIVAL10(
+            train=True,
+            cherrypick_list=["img", "og_class_label", "attr_labels"],
+            masks_dict=False,
+            transform=preprocess,
+        )
+
+        class_to_idx = {
+            c: i
+            for (i, c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)
+        }
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+
+        if args.dataset_scalar is not None:
+            subset_size = int(len(trainset) * args.dataset_scalar)
+            indices = torch.randperm(len(trainset))[:subset_size]
+            trainset = Subset(trainset, indices)
+
+        trainset, testset = random_split(trainset, [0.8, 0.2])
+
         train_loader = DataLoader(
-            train_dataset, batch_size=1, shuffle=False, num_workers=16
+            trainset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
         )
         test_loader = DataLoader(
-            test_dataset, batch_size=1, shuffle=False, num_workers=16
+            testset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
         )
+    elif args.dataset == "css_rival10_gridsearch":
+        from utils import CSS_Rival_Dataset
+        from torch.utils.data import random_split
+
+        trainset = CSS_Rival_Dataset(
+            split="train",
+            true_batch_size=args.batch_size,
+            percentage_of_concept_labels_for_training=0.01,
+            transform=preprocess,
+        )
+
+        class_to_idx = {
+            c: i
+            for (i, c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)
+        }
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+
+        if args.dataset_scalar is not None:
+            subset_size = int(len(trainset) * args.dataset_scalar)
+            indices = torch.randperm(len(trainset))[:subset_size]
+            trainset = Subset(trainset, indices)
+
+        trainset, testset = random_split(trainset, [0.8, 0.2])
+
+        train_loader = DataLoader(trainset, batch_size=1, shuffle=False, num_workers=16)
+        test_loader = DataLoader(testset, batch_size=1, shuffle=False, num_workers=16)
+    elif args.dataset == "smiling_celebA":
+        from torchvision import datasets, transforms
+
+        trainset = datasets.CelebA(
+            root='./data',
+            split='train',
+            target_type='attr',
+            transform=preprocess,
+            download=True
+        )
+        
+        testset = datasets.CelebA(
+            root='./data',
+            split='valid',
+            target_type='attr',
+            transform=preprocess,
+            download=True
+        )
+        
+        class wrapped_celebA(Dataset):
+            def __init__(self, base_dataset):
+                self.base_dataset = base_dataset
+
+            def __len__(self):
+                return len(self.base_dataset)
+
+            def __getitem__(self, idx):
+                X, Y = self.base_dataset[idx]
+                return X, Y[celebA_features.smiling_label_index], Y[celebA_features.smiling_concepts_indices]
+            
+        class_to_idx = {
+            "smiling": 0,
+            "not smiling": 1
+        }
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+        
+        train_loader = DataLoader(wrapped_celebA(trainset), batch_size=args.batch_size, shuffle=False, num_workers=16)
+        test_loader = DataLoader(wrapped_celebA(testset), batch_size=args.batch_size, shuffle=False, num_workers=16)
+    elif args.dataset == "css_smiling_celebA":
+        from torchvision import datasets, transforms
+        from utils.data_utils import CelebA_Rival_Dataset
+
+        trainset = CelebA_Rival_Dataset(
+            root='./data',
+            split="train",
+            true_batch_size=args.batch_size,
+            percentage_of_concept_labels_for_training=0.01,
+            transform=preprocess,
+        )
+        
+        testset = CelebA_Rival_Dataset(
+            root='./data',
+            split='valid',
+            true_batch_size=args.batch_size,
+            percentage_of_concept_labels_for_training=0.01,
+            transform=preprocess,
+        )
+        
+        class_to_idx = {
+            "smiling": 0,
+            "not smiling": 1
+        }
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+
+        train_loader = DataLoader(trainset, batch_size=1, shuffle=False, num_workers=16)
+        test_loader = DataLoader(testset, batch_size=1, shuffle=False, num_workers=16)
+    elif args.dataset == "smiling_celebA_test":
+        from torchvision import datasets, transforms
+
+        trainset = None
+        
+        testset = datasets.CelebA(
+            root='./data',
+            split='test',
+            target_type='attr',
+            transform=preprocess,
+            download=True
+        )
+        
+        class wrapped_celebA(Dataset):
+            def __init__(self, base_dataset):
+                self.base_dataset = base_dataset
+
+            def __len__(self):
+                return len(self.base_dataset)
+
+            def __getitem__(self, idx):
+                X, Y = self.base_dataset[idx]
+                return X, Y[celebA_features.smiling_label_index], Y[celebA_features.smiling_concepts_indices]
+            
+        class_to_idx = {
+            "smiling": 0,
+            "not smiling": 1
+        }
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+        
+        train_loader = None
+        test_loader = DataLoader(wrapped_celebA(testset), batch_size=args.batch_size, shuffle=False, num_workers=16)
     else:
         raise ValueError(args.dataset)
 

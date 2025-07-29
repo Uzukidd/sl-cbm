@@ -31,10 +31,14 @@ def config():
     parser.add_argument("--explain-method", required=True, type=str)
     parser.add_argument("--concept-pooling", default="max_pooling_class_wise", type=str)
     
+    parser.add_argument("--target-dataset", default="rival10_full", type=str)
     parser.add_argument("--dataset", default="rival10_full", type=str)
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--batch-size", default=64, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
+    parser.add_argument('--dataset-scalar', default=None, type=float)
+    parser.add_argument('--intervention', action='store_true')
+
 
     parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)
     parser.add_argument('--batch-vis', action='store_true')
@@ -159,8 +163,8 @@ def main(args):
     concept_bank, backbone, dataset, model_context, model = load_model_pipeline(args)
     model.eval()
     
-    val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, args.device)
-    args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
+    # val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, args.device)
+    # args.logger.info("\t Val Class Accuracy = {} and Val Concept Accuracy = {}.".format(round(val_acc,2),round(val_concept_acc,2)))
 
     # Start Rival attrbution alignment evaluation
     eval_model_explainability(

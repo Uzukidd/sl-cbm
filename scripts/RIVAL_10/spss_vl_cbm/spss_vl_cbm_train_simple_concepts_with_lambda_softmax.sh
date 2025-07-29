@@ -8,7 +8,7 @@ python spss_vl_cbm_train.py --backbone-name="open_clip:ViT-B-16" \
     --explain-method="builtin_explain" \
     --lambda1="$1" \
     --lambda2="$2" \
-    --lambda3="$3"
+    --lambda3="$3" \
     $4
 
 # python spss_vl_cbm_train.py --backbone-name="open_clip:ViT-B-16" \

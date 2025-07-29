@@ -210,4 +210,71 @@ class CSS_Rival_Dataset(Dataset):
         use_concept_labels = torch.stack(use_concept_labels,0)
 
         return image_pairs, label_pairs, concept_label_pairs, use_concept_labels
-    
+
+from torchvision.datasets import CelebA
+from utils.constants import celebA_features
+class CelebA_Rival_Dataset(Dataset):
+    def __init__(self, root, split, true_batch_size, percentage_of_concept_labels_for_training=1.0, transform=None):
+        self.batch_size = true_batch_size
+        self.transform = transform
+        self.smile_index = 31
+
+        self.dataset = CelebA(root=root, split=split, target_type="attr", download=True, transform=transform)
+        
+        cache_dir = os.path.join(root, '.cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_path = os.path.join(cache_dir, f'classwise_samples_{split}.pt')
+
+        if os.path.exists(cache_path):
+            print(f"Loading cached classwise_samples from {cache_path}")
+            self.classwise_samples = torch.load(cache_path)
+        else:
+            print("Building classwise_samples...")
+            self.classwise_samples = {0: [], 1: []}
+            for idx in tqdm(range(len(self.dataset))):
+                _, attr = self.dataset[idx]
+                label = int(attr[self.smile_index].item())
+                self.classwise_samples[label].append(idx)
+            torch.save(self.classwise_samples, cache_path)
+            print(f"Saved classwise_samples to {cache_path}")
+
+        total_indices = np.arange(len(self.dataset))
+        selected_indices = np.random.choice(
+            total_indices,
+            size=int(len(self.dataset) * percentage_of_concept_labels_for_training),
+            replace=False
+        )
+        self.attribute_labelled_samples = set(selected_indices)
+
+    def __len__(self):
+        return int(len(self.dataset) / (self.batch_size * 2))
+
+    def __getitem__(self, _):
+        classes = np.random.choice([0, 1], size=self.batch_size, replace=True)
+        image_pairs, label_pairs, attr_label_pairs, use_attr_labels = [], [], [], []
+
+        for cls in classes:
+            idx_pair = np.random.choice(self.classwise_samples[cls], size=2, replace=False)
+
+            imgs, labels, attrs, attr_flags = [], [], [], []
+
+            for idx in idx_pair:
+                img, attr = self.dataset[idx]
+                smile_label = int(attr[self.smile_index].item())
+
+                imgs.append(img)
+                labels.append(torch.tensor(smile_label))
+                attrs.append(attr[celebA_features.smiling_concepts_indices].to(torch.float32))
+                attr_flags.append(torch.tensor(1. if idx in self.attribute_labelled_samples else 0.))
+
+            image_pairs.append(torch.stack(imgs))                # (2, 3, H, W)
+            label_pairs.append(torch.stack(labels))              # (2,)
+            attr_label_pairs.append(torch.stack(attrs))          # (2, 40)
+            use_attr_labels.append(torch.stack(attr_flags))      # (2,)
+
+        return (
+            torch.stack(image_pairs),        # [B, 2, 3, H, W]
+            torch.stack(label_pairs),        # [B, 2]
+            torch.stack(attr_label_pairs),   # [B, 2, 40]
+            torch.stack(use_attr_labels)     # [B, 2]
+        )

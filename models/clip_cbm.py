@@ -8,7 +8,7 @@ from pcbm.concepts import ConceptBank
 
 from typing import Tuple, Callable, Union, Optional
 
-from utils.model_utils import CBM_Net, CAV
+from utils.model_utils import CBM_Net, CAV, NECLinear
 
 # CLIP VL-CBM
 class clip_cbm(CBM_Net):
@@ -35,7 +35,9 @@ class clip_cbm(CBM_Net):
         self.num_of_concepts = self.concept_bank.concept_names.__len__()
         self.num_of_classes = num_of_classes
         
-        self.classifier = nn.Linear(self.num_of_concepts, self.num_of_classes)
+        # self.classifier = nn.Linear(self.num_of_concepts, self.num_of_classes)
+        self.nec_concepts_projection = NECLinear(self.num_of_concepts, self.num_of_classes, nec=5)
+        self.classifier = self.nec_concepts_projection
 
     # ------------
     # Getter & Setter
@@ -86,7 +88,6 @@ class clip_cbm(CBM_Net):
                            batch_X:torch.Tensor) -> torch.Tensor:
         visual_projection = self.encode_as_embedding(batch_X)
         concept_activations = self.CAV_layer(visual_projection)
-
         return concept_activations
     
     def compute_dist(self, 
@@ -111,6 +112,14 @@ class clip_cbm(CBM_Net):
         top_values = top_values / torch.sum(top_values, dim=1, keepdim=True)
         
         return top_indices, top_values
+
+    def enable_nec(
+        self,
+        enable:bool,
+        nec:int=5
+    ) -> None:
+        self.nec_concepts_projection.enable_nec = enable
+        self.nec_concepts_projection.nec = nec
     
 class robust_pcbm(clip_cbm):
     

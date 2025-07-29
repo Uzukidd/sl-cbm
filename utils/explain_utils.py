@@ -393,3 +393,58 @@ class CausalMetric(nn.Module):
                 start[r, :, coords] = finish[r, :, coords]
                 start = start.view(img_batch.size())
         return scores
+
+
+def concepts_adi(
+    model: Callable,
+    images: torch.Tensor,
+    masked_images: torch.Tensor,
+    active_labels: Union[torch.Tensor, int] = None,
+    reduction: str = "mean",
+):
+    """
+    Args:
+        model: nn.Module
+        images: [1, 3, H, W]
+        masked_images: [K, 3, H, W]
+        active_labels: [1, D] where sum(active_labels) == K
+
+        where K -> active concept label, D -> concept label
+
+    """
+    if not hasattr(concepts_adi, "total"):
+        concepts_adi.total = 0
+        concepts_adi.nan = 0
+
+    images = images
+    masked_images = masked_images
+
+    concepts_logits = None
+    masked_concepts_logits = None
+    with torch.no_grad():
+        concepts_logits: torch.Tensor = model(images)  # [1, D]
+        masked_concepts_logits: torch.Tensor = model(masked_images)  # [1, D]
+
+    if isinstance(active_labels, torch.Tensor):
+        Y = concepts_logits[:, active_labels[0].bool()].sigmoid()  # [1, D] -> [1, K]
+        O = masked_concepts_logits[
+            :, active_labels[0].bool()
+        ].sigmoid()  # [1, D] -> [1, K]
+    elif active_labels is not None:
+        Y = concepts_logits[:, active_labels].sigmoid()  # [1, D] -> [1, 1]
+        O = masked_concepts_logits[:, active_labels].sigmoid()  # [1, D] -> [1, 1]
+    else:
+        Y = concepts_logits.sigmoid()  # [1, D] -> [1, 1]
+        O = masked_concepts_logits.sigmoid()  # [1, D] -> [1, 1]
+
+    avg_drop = torch.maximum(Y - O, torch.zeros_like(Y)) / Y  # [K, ]
+    avg_gain = torch.maximum(O - Y, torch.zeros_like(Y)) / (1 - Y)  # [K, ]
+    avg_inc = torch.gt(O, Y)  # [K, ]
+
+    concepts_adi.total += 1
+    concepts_adi.nan += avg_gain.isnan().any().float().item()
+    
+    if reduction == "mean":
+        return avg_drop.nanmean(), avg_inc.float().nanmean(), avg_gain.nanmean()
+    elif reduction is None:
+        return avg_drop, avg_inc.float(), avg_gain

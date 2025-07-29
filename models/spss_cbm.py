@@ -17,6 +17,8 @@ from utils.model_utils import CBM_Net, SimPool, ResNetBottom, CAV, NECLinear
 # SimPooling Semi-Supervised (SPSS) VL-CBM
 class spss_pcbm(CBM_Net):
     TRAINABLE_COMPONENTS = ["simpool", "token_projection", "classifier", "concepts_projection"]
+    
+    IS_CONCEPT_PROBABILITY_SPACE = False
 
     def __init__(
         self,
@@ -67,11 +69,11 @@ class spss_pcbm(CBM_Net):
         self.token_projection = nn.Linear(
             in_features=token_width, out_features=self.num_of_concepts
         )
-        self.concepts_projection = NECLinear(self.num_of_concepts, self.num_of_classes, nec=5)
+        self.nec_concepts_projection = NECLinear(self.num_of_concepts, self.num_of_classes, nec=5)
         # self.concepts_projection = nn.Linear(self.num_of_concepts, self.num_of_classes)
         self.classifier = nn.Sequential(
             nn.LayerNorm(self.num_of_concepts),
-            self.concepts_projection
+            self.nec_concepts_projection
         )
 
         self._attn_map = None
@@ -264,5 +266,5 @@ class spss_pcbm(CBM_Net):
         enable:bool,
         nec:int=5
     ) -> None:
-        self.concepts_projection.enable_nec = enable
-        self.concepts_projection.nec = nec
+        self.nec_concepts_projection.enable_nec = enable
+        self.nec_concepts_projection.nec = nec

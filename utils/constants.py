@@ -10,7 +10,65 @@ class dataset_constants:
     CIFAR100_DIR:str = "data/CIFAR100"
     CUB_DATA_DIR:str = "data/CUB_DATASET/CUB_200_2011"
     CUB_PROCESSED_DIR:str = "data/CUB_DATASET/class_attr_data_10"
+    CELEBA_DIR:str = "data/"
     RIVAL10_DIR:str = "data/RIVAL10"
+
+class celebA_features:
+    text_attributions = ["5 o'Clock Shadow",
+        "Arched Eyebrows",
+        "Attractive",
+        "Bags Under Eyes",
+        "Bald",
+        "Bangs",
+        "Big Lips",
+        "Big Nose",
+        "Black Hair",
+        "Blond Hair",
+        "Blurry",
+        "Brown Hair",
+        "Bushy Eyebrows",
+        "Chubby",
+        "Double Chin",
+        "Eyeglasses",
+        "Goatee",
+        "Gray Hair",
+        "Heavy Makeup",
+        "High Cheekbones",
+        "Male",
+        "Mouth Slightly Open",
+        "Mustache",
+        "Narrow Eyes",
+        "No Beard",
+        "Oval Face",
+        "Pale Skin",
+        "Pointy Nose",
+        "Receding Hairline",
+        "Rosy Cheeks",
+        "Sideburns",
+        "Smiling",
+        "Straight Hair",
+        "Wavy Hair",
+        "Wearing Earrings",
+        "Wearing Hat",
+        "Wearing Lipstick",
+        "Wearing Necklace",
+        "Wearing Necktie",
+        "Young"]
+    
+    smiling_concepts = [
+        "Bags Under Eyes",
+        "High Cheekbones",
+        "Mouth Slightly Open",
+        "Rosy Cheeks",
+        "Double Chin",
+        "Arched Eyebrows",
+        "Narrow Eyes",
+    ]
+    
+    smiling_concepts_indices = [3, 19, 21, 29, 14, 1, 23]
+    
+    smiling_label_index = 31
+
 
 class CUB_features:
     # body part = (min, max)

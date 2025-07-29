@@ -57,6 +57,7 @@ def config():
     parser.add_argument("--loss4-scale", default=1e-3, type=float)
     parser.add_argument('--evaluate', action='store_true')
 
+    parser.add_argument('--dataset-scalar', default=None, type=float)
     parser.add_argument('--not-save-ckpt', action='store_true')
     
     parser.add_argument("--exp-name", default=str(datetime.now().strftime("%Y%m%d%H%M%S")), type=str)

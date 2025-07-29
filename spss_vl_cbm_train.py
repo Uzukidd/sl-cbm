@@ -29,6 +29,7 @@ from captum.attr import visualization, GradientAttribution, LayerAttribution
 from utils import *
 from asgt import robust_training, ASGT_Legacy
 
+from torchvision import datasets, transforms
 
 def config():
     parser = argparse.ArgumentParser()
@@ -72,6 +73,7 @@ def config():
 
     parser.add_argument("--evaluate", action="store_true")
 
+    parser.add_argument('--dataset-scalar', default=None, type=float)
     parser.add_argument("--not-save-ckpt", action="store_true")
     parser.add_argument("--batch-vis", action="store_true")
 
@@ -96,7 +98,7 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
     model.train()
 
     ###Iterating over data loader
-    for i, data in enumerate(train_data_loader):
+    for i, data in tqdm(enumerate(train_data_loader)):
         images, class_labels, concept_labels, use_concept_labels = (
             None,
             None,
@@ -134,7 +136,7 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
 
         # Reseting Gradients
         optimizer.zero_grad()
-
+        # import pdb;pdb.set_trace()
         # Forward
         class_predictions, concept_predictions, token_concepts = model(images)
 
@@ -212,6 +214,7 @@ def main(args: argparse.Namespace):
         )
 
     # args.logger.info(f"data size: {args.data_size}")
+    args.logger.info(f"\n\n\n\t Dataset size:{dataset.trainset.__len__()}")
     args.logger.info("\n\n\n\t Model Loaded")
     args.logger.info("\t Total Params = %d", sum(p.numel() for p in model.parameters()))
     args.logger.info(
