@@ -16,7 +16,8 @@ from utils.model_utils import CBM_Net, ResNetBottom, CAV, NECLinear
 class css_pcbm(CBM_Net):
 
     TRAINABLE_COMPONENTS = ["concept_projection", 
-                           "classifier"]
+                           "classifier",
+                           "nec_concepts_projection"]
     
     IS_CONCEPT_PROBABILITY_SPACE = False
 
@@ -60,9 +61,12 @@ class css_pcbm(CBM_Net):
         
         for name, param in self.named_parameters():
             if name.split(".")[0] in self.TRAINABLE_COMPONENTS:
+                # print(f"Trainable: {name}")
                 param.requires_grad = True
             else:
                 param.requires_grad = False
+                # if "nec_concepts_projection" in name:
+                #     print(f"Non-trainable: {name}")
 
     # ------------
     # Getter & Setter
@@ -110,7 +114,7 @@ class css_pcbm(CBM_Net):
                                                          dim=-1))
         concepts = concept_activations + concept_projections
         #     (bs*2,18)         (bs*2,10)
-        return self.classifier(concepts), concepts, None
+        return self.classifier(concepts), concepts.sigmoid(), None
     
     def direct_encode_as_concepts(self, 
                            batch_X:torch.Tensor) -> torch.Tensor:

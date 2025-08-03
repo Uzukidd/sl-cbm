@@ -16,7 +16,7 @@ from utils.model_utils import CBM_Net, SimPool, ResNetBottom, CAV, NECLinear
 
 # SimPooling Semi-Supervised (SPSS) VL-CBM
 class spss_pcbm(CBM_Net):
-    TRAINABLE_COMPONENTS = ["simpool", "token_projection", "classifier", "concepts_projection"]
+    TRAINABLE_COMPONENTS = ["simpool", "token_projection", "classifier", "concepts_projection", "nec_concepts_projection"]
     
     IS_CONCEPT_PROBABILITY_SPACE = False
 

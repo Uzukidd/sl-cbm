@@ -56,7 +56,7 @@ def config():
     parser.add_argument("--dataset", default="spss_rival10", type=str)
     parser.add_argument("--target-dataset", default="rival10_full", type=str)
 
-    parser.add_argument("--device", default="cuda", type=str)
+    parser.add_argument("--device", default=0, type=int)
     parser.add_argument("--batch-size", default=8, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
 
@@ -72,6 +72,8 @@ def config():
     parser.add_argument("--explain-method", type=str)
 
     parser.add_argument("--evaluate", action="store_true")
+    parser.add_argument('--intervention', action='store_true')
+
 
     parser.add_argument('--dataset-scalar', default=None, type=float)
     parser.add_argument("--not-save-ckpt", action="store_true")
@@ -114,7 +116,6 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
                 )
         else:
             images, class_labels, concept_labels, use_concept_labels = data
-
         # Loading data and labels to device
         images = images.squeeze().to(device)
         class_labels = class_labels.squeeze().to(device)
@@ -171,6 +172,7 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
                 ", Regularization Loss = ",
                 np.mean(regular_loss),
             )
+            # import pdb;pdb.set_trace()
 
         # calculate acc per minibatch
         sum_correct_pred += (

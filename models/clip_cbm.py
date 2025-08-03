@@ -14,6 +14,9 @@ from utils.model_utils import CBM_Net, CAV, NECLinear
 class clip_cbm(CBM_Net):
 
     TRAINABLE_COMPONENTS = ["classifier"]
+    
+    IS_CONCEPT_COS_SIMILARITY_SPACE = True
+    IS_CONCEPT_PROBABILITY_SPACE = False
 
     def __init__(self, normalizer, 
                  concept_bank:ConceptBank, 

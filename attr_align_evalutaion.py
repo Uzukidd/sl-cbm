@@ -33,7 +33,7 @@ def config():
     
     parser.add_argument("--target-dataset", default="rival10_full", type=str)
     parser.add_argument("--dataset", default="rival10_full", type=str)
-    parser.add_argument("--device", default="cuda", type=str)
+    parser.add_argument("--device", default=0, type=int)
     parser.add_argument("--batch-size", default=64, type=int)
     parser.add_argument("--num-workers", default=4, type=int)
     parser.add_argument('--dataset-scalar', default=None, type=float)

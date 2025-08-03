@@ -242,7 +242,7 @@ def load_dataset(
             resol=224,
             normalizer=None,
             n_classes=num_classes,
-            resampling=True,
+            resampling=False,
         )
 
         testset, test_loader = load_cub_data(
@@ -344,7 +344,7 @@ def load_dataset(
             resol=224,
             normalizer=None,
             n_classes=num_classes,
-            resampling=True,
+            resampling=False,
         )
 
         classes = open(

@@ -66,7 +66,7 @@ def calculate_intervention_order(
             #     intervention_order_list = np.argsort(score_list, axis=1)
             # all_intervention_order_list.append(intervention_order_list)
             raise NotImplementedError
-        elif criterion in ["adi"]:
+        elif criterion in ["ag"]:
             _, K = attr_labels.size()
             intervention_order_list = []
             for batch_mask in range(B):
@@ -114,7 +114,7 @@ def calculate_intervention_order(
                     reduction=None,
                 )
                 avg_gain = torch.gather(avg_gain, 1, all_explain_concept.unsqueeze(1))
-                intervention_order_list.append(avg_gain.view(-1))
+                intervention_order_list.append(-avg_gain.view(-1))
             intervention_order_list = torch.argsort(torch.stack(intervention_order_list))
         else:  # 'rand', 'ucp', 'lcp', 'cctp'
             if batch_intervention:

@@ -747,9 +747,20 @@ def compute_adi(
         if image.shape.__len__() > 4:
             image = image.view(-1, *image.shape[-3:])
             attr_labels = attr_labels.view(-1, attr_labels.shape[-1])
+        
+        if image.size().__len__() == 4:
+            B, C, W, H = image.size()
+            _, K = attr_labels.size()
+        elif image.size().__len__() == 5:
+            P, B, C, W, H = image.size()
+            image = image.view(P * B, C, W, H)
+            
+            _, _, K = attr_labels.size()
+            attr_labels = attr_labels.view(P * B, K)
+            class_label = attr_labels.view(P * B)
+            
+            B = P * B
 
-        B, C, W, H = image.size()
-        _, K = attr_labels.size()
 
         for batch_mask in range(B):
             ind_X = image[batch_mask : batch_mask + 1]  # [1, C, H, W]
@@ -950,9 +961,14 @@ def eval_model_explainability(
         os.mkdir(eval_save_to)
 
     if args.intervention:
-        eval_intervention(
-            args, concept_bank, ["adi", "rand", "ucp", "cctp"], dataset.test_loader, model, eval_save_to
-        )
+        if "rival" in args.target_dataset:
+            eval_intervention(
+                args, concept_bank, ["ag", "rand", "lcp", "ucp", "cctp"], dataset.test_loader, model, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19], eval_save_to
+            )
+        elif "cub" in args.target_dataset:
+            eval_intervention(
+                args, concept_bank, ["ag", "rand", "lcp", "ucp", "cctp"], dataset.test_loader, model, [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 999], eval_save_to
+            )
 
     val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, args.device)
 
@@ -970,6 +986,9 @@ def eval_model_explainability(
         eval_nec(args, dataset.test_loader, model, [5, 10, 15], eval_save_to)
     elif "celebA" in args.target_dataset:
         eval_nec(args, dataset.test_loader, model, [5, 7], eval_save_to)
+    elif "cub" in args.target_dataset:
+        eval_nec(args, dataset.test_loader, model, [5, 10, 15, 20, 25, 30], eval_save_to)
+
 
     eval_attribution_alignment(
         args,
@@ -1009,6 +1028,7 @@ def eval_nec(
         {"nec5": nec_5_acc, "anec": anec_acc},
         os.path.join(eval_save_to, "nec.pt"),
     )
+    model.enable_nec(False, 5)
 
 
 def eval_attribution_alignment(
@@ -1132,6 +1152,7 @@ def eval_intervention(
     intervention_methods: list[str],
     data_loader: DataLoader,
     model: CBM_Net,
+    intervention_range: int,
     eval_save_to: str,
 ):
 
@@ -1222,6 +1243,7 @@ def eval_intervention(
     )
     
     for intervention_method in intervention_methods:
+        intervention_taskerror[intervention_method] = []
         for idx, data in enumerate(tqdm(data_loader)):
             if isinstance(data, dict):
                 image: torch.Tensor = data["img"].to(args.device)
@@ -1256,15 +1278,24 @@ def eval_intervention(
             # inactive_label = torch.zeros_like(attr_labels)
             # active_label = torch.ones_like(attr_labels)
             
-            concepts_predicted_sigmoid = concepts_predicted
-            if not model.IS_CONCEPT_PROBABILITY_SPACE:
-                concepts_predicted_sigmoid = concepts_predicted.sigmoid()
-                inactive_label = torch.quantile(concepts_predicted_sigmoid, q=0.05, dim=1)
-                active_label = torch.quantile(concepts_predicted_sigmoid, q=0.95, dim=1)
-                
-                mapped_attr_labels = torch.where(attr_labels == 1, active_label.unsqueeze(1).expand_as(attr_labels), attr_labels)
-                mapped_attr_labels = torch.where(attr_labels == 0, inactive_label.unsqueeze(1).expand_as(attr_labels), mapped_attr_labels)
-                attr_labels = mapped_attr_labels
+            # concepts_predicted_sigmoid = concepts_predicted
+            # if not model.IS_CONCEPT_PROBABILITY_SPACE:
+            concepts_predicted_sigmoid = concepts_predicted.sigmoid()
+            inactive_label = torch.quantile(concepts_predicted, q=0.05, dim=1)
+            active_label = torch.quantile(concepts_predicted, q=0.95, dim=1)
+            
+            mapped_attr_labels = torch.where(attr_labels == 1, active_label.unsqueeze(1).expand_as(attr_labels), attr_labels)
+            mapped_attr_labels = torch.where(attr_labels == 0, inactive_label.unsqueeze(1).expand_as(attr_labels), mapped_attr_labels)
+            # attr_labels = mapped_attr_labels
+            
+                # if model.IS_CONCEPT_COS_SIMILARITY_SPACE:
+                #     concepts_predicted_sigmoid = concepts_predicted.sigmoid()
+                #     inactive_label = torch.quantile(concepts_predicted_sigmoid, q=0.05, dim=1)
+                #     active_label = torch.quantile(concepts_predicted_sigmoid, q=0.95, dim=1)
+                    
+                #     mapped_attr_labels = torch.where(attr_labels == 1, active_label.unsqueeze(1).expand_as(attr_labels), attr_labels)
+                #     mapped_attr_labels = torch.where(attr_labels == 0, inactive_label.unsqueeze(1).expand_as(attr_labels), mapped_attr_labels)
+                #     attr_labels = mapped_attr_labels
 
             all_intervention_order = calculate_intervention_order(
                 intervention_method,
@@ -1277,20 +1308,21 @@ def eval_intervention(
                 explain_algorithm_forward=explain_algorithm_forward,
                 n_trials=1,
             )
-            intervention_taskerror[intervention_method] = []
 
             taskerror = []
-            for n_replace in range(K + 1):
+            x = [0]
+            for n_replace in intervention_range:
                 intervened_concepts = torch.where(
-                    batch_intervene_mask, attr_labels, concepts_predicted
+                    batch_intervene_mask, mapped_attr_labels, concepts_predicted
                 )
                 output_Y = model.forward_projs(intervened_concepts)
                 taskerror.append(1.0 - (output_Y.argmax(-1) == class_label).float().mean())
                 # print(accuracy[-1])
 
                 if n_replace < K:
+                    x.append(n_replace)
                     batch_intervene_mask[
-                        batch_seq_mask, all_intervention_order[0][:, n_replace].unsqueeze(1)
+                        batch_seq_mask, all_intervention_order[0][:, :n_replace].unsqueeze(1)
                     ] = True
 
             intervention_taskerror[intervention_method].append(taskerror)
@@ -1302,7 +1334,9 @@ def eval_intervention(
     #         "Value": intervention_accuracy.numpy(),
     #     }
     # )
-    x = torch.linspace(0, 18, 19)
+    x = torch.Tensor(x)
+    torch.save(intervention_taskerror, os.path.join(eval_save_to, "intervention_taskerror.pt"))
+    # import pdb;pdb.set_trace()
     draw_intervention_graph(x, intervention_taskerror, title = f"{args.pcbm_arch} - {args.backbone_name}")
 
     # b_attr_new = b_attr_new.reshape(-1, args.n_attributes)
@@ -1379,9 +1413,9 @@ def draw_intervention_graph(x, curves, title):
     )
 
     
-    plt.xlim(-0.5, 18.5)
+    plt.xlim(-0.5, x.max() + 0.5)
     plt.ylim(-0.1, 1.1)
-    plt.xticks(np.arange(0, 19, 1))
+    plt.xticks(x)
     plt.yticks(np.arange(0, 1.1, 0.1))
     plt.xlabel("Intervention count")
     plt.ylabel("Task error")
