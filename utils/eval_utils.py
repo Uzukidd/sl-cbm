@@ -350,17 +350,18 @@ def save_key_image(
     prefix: str,
     save_to: str,
 ):
-    if ind_class_name in RIVAL10_constants._KEY_FEATURES:
-        for attr_name in RIVAL10_constants._KEY_FEATURES[ind_class_name]:
-            attr_label = RIVAL10_constants._ALL_ATTRS.index(attr_name)
-            __vis_ind_image(
-                ind_X,
-                attribution,
-                ind_attr_masks,
-                attr_label,
-                f"{ind_class_name}-{attr_name}-{prefix}",
-                save_to,
-            )
+    # if ind_class_name in RIVAL10_constants._KEY_FEATURES:
+    # for attr_name in RIVAL10_constants._KEY_FEATURES[ind_class_name]:
+    for attr_name in RIVAL10_constants._ALL_ATTRS:
+        attr_label = RIVAL10_constants._ALL_ATTRS.index(attr_name)
+        __vis_ind_image(
+            ind_X,
+            attribution,
+            ind_attr_masks,
+            attr_label,
+            f"{ind_class_name}-{attr_name}-{prefix}",
+            save_to,
+        )
 
 
 def save_best_image(
@@ -519,13 +520,13 @@ def interpret_all_concept(
             classes_segmentation_metric.update(ind_class_label, classes_metric)
 
             # Save preview image
-            if idx < 100 and args.batch_vis:
+            if idx < 10 and args.batch_vis:
                 save_key_image(
                     ind_class_name,
                     ind_X,
                     concepts_attribution.sum(dim=1, keepdim=True),
                     ind_attr_masks,
-                    f"{idx}:{batch_mask}",
+                    f"{idx}-{batch_mask}",
                     concept_save_to,
                 )
                 __vis_ind_image(
@@ -533,7 +534,7 @@ def interpret_all_concept(
                     classes_attribution,
                     ind_attr_masks,
                     -1,
-                    f"{ind_class_name}-{idx}:{batch_mask}",
+                    f"{ind_class_name}-{idx}-{batch_mask}",
                     class_save_to,
                 )
                 _, top5_pred_indices = torch.topk(
@@ -553,7 +554,7 @@ def interpret_all_concept(
                         ind_X,
                         binarized_concepts_attribution,
                         True,
-                        f"topK-{ind_class_name}-{idx}:{batch_mask}-{k}-{index}",
+                        f"topK-{ind_class_name}-{idx}-{batch_mask}-{k}-{index}",
                         topK_save_to,
                     )
 
@@ -835,12 +836,12 @@ def compute_adi(
             classes_avg_gain_list.append(avg_gain)
 
     return (
-        torch.stack(concepts_avg_drop_list).mean(),
-        torch.stack(concepts_avg_inc_list).mean(),
-        torch.stack(concepts_avg_gain_list).mean(),
-        torch.stack(classes_avg_drop_list).mean(),
-        torch.stack(classes_avg_inc_list).mean(),
-        torch.stack(classes_avg_gain_list).mean(),
+        torch.stack(concepts_avg_drop_list).nanmean(),
+        torch.stack(concepts_avg_inc_list).nanmean(),
+        torch.stack(concepts_avg_gain_list).nanmean(),
+        torch.stack(classes_avg_drop_list).nanmean(),
+        torch.stack(classes_avg_inc_list).nanmean(),
+        torch.stack(classes_avg_gain_list).nanmean(),
     )
 
 def estimate_top_concepts_accuracy(concept_predictions, concept_labels):
@@ -963,11 +964,15 @@ def eval_model_explainability(
     if args.intervention:
         if "rival" in args.target_dataset:
             eval_intervention(
-                args, concept_bank, ["ag", "rand", "lcp", "ucp", "cctp"], dataset.test_loader, model, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19], eval_save_to
+                args, concept_bank, ["ag", "rand", "lcp", "ucp", "cctp"], dataset.test_loader, model, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 999], eval_save_to
             )
         elif "cub" in args.target_dataset:
             eval_intervention(
                 args, concept_bank, ["ag", "rand", "lcp", "ucp", "cctp"], dataset.test_loader, model, [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 999], eval_save_to
+            )
+        elif "celeb" in args.target_dataset:
+            eval_intervention(
+                args, concept_bank, ["ag", "rand", "lcp", "ucp", "cctp"], dataset.test_loader, model, [1, 2, 3, 4, 5, 6, 7, 999], eval_save_to
             )
 
     val_acc, val_concept_acc = val_one_epoch(dataset.test_loader, model, args.device)
@@ -1258,7 +1263,7 @@ def eval_intervention(
                     attr_labels = torch.stack(attr_labels).permute((1, 0))
 
                 if not isinstance(class_label, torch.Tensor):
-                    class_label = torch.Tensor(class_label)
+                    class_label = torch.Tensor(class_label).long()
 
                 class_label = class_label.to(args.device)
                 attr_labels = attr_labels.to(args.device)
@@ -1284,8 +1289,13 @@ def eval_intervention(
             inactive_label = torch.quantile(concepts_predicted, q=0.05, dim=1)
             active_label = torch.quantile(concepts_predicted, q=0.95, dim=1)
             
-            mapped_attr_labels = torch.where(attr_labels == 1, active_label.unsqueeze(1).expand_as(attr_labels), attr_labels)
-            mapped_attr_labels = torch.where(attr_labels == 0, inactive_label.unsqueeze(1).expand_as(attr_labels), mapped_attr_labels)
+            # mapped_attr_labels = torch.where(attr_labels == 1, active_label.unsqueeze(1).expand_as(attr_labels), attr_labels)
+            # mapped_attr_labels = torch.where(attr_labels == 0, inactive_label.unsqueeze(1).expand_as(attr_labels), mapped_attr_labels)
+            mapped_attr_labels = torch.where(
+                attr_labels.bool(),
+                active_label.unsqueeze(1).expand_as(attr_labels),
+                inactive_label.unsqueeze(1).expand_as(attr_labels),
+            )
             # attr_labels = mapped_attr_labels
             
                 # if model.IS_CONCEPT_COS_SIMILARITY_SPACE:
@@ -1319,7 +1329,7 @@ def eval_intervention(
                 taskerror.append(1.0 - (output_Y.argmax(-1) == class_label).float().mean())
                 # print(accuracy[-1])
 
-                if n_replace < K:
+                if n_replace <= K:
                     x.append(n_replace)
                     batch_intervene_mask[
                         batch_seq_mask, all_intervention_order[0][:, :n_replace].unsqueeze(1)

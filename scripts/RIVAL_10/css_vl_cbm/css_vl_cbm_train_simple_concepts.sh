@@ -5,7 +5,8 @@ python css_vl_cbm_train.py --backbone-name="open_clip:ViT-B-16" \
     --universal-seed="24" \
     --explain-method="layer_grad_cam_vit" \
     --intervention \
-    --exp-name="css_vl_cbm_train_simple_concepts"
+    --exp-name="css_vl_cbm_train_simple_concepts" \
+    --batch-vis
     # --not-save-ckpt
 
 # python css_vl_cbm_train.py --backbone-name="open_clip:ViT-B-16" \

@@ -467,6 +467,43 @@ def load_dataset(
             shuffle=False,
             num_workers=args.num_workers,
         )
+    elif args.dataset == "supervised_rival10":
+        trainset = LocalRIVAL10(
+            train=True,
+            cherrypick_list=["img", "og_class_label", "attr_labels", "attr_masks"],
+            masks_dict=True,
+            transform=preprocess,
+        )
+        testset = LocalRIVAL10(
+            train=False,
+            cherrypick_list=["img", "og_class_label", "attr_labels", "attr_masks"],
+            masks_dict=True,
+            transform=preprocess,
+        )
+
+        class_to_idx = {
+            c: i
+            for (i, c) in enumerate(rival10.constants.RIVAL10_constants._ALL_CLASSNAMES)
+        }
+        idx_to_class = {v: k for k, v in class_to_idx.items()}
+
+        if args.dataset_scalar is not None:
+            subset_size = int(len(trainset) * args.dataset_scalar)
+            indices = torch.randperm(len(trainset))[:subset_size]
+            trainset = Subset(trainset, indices)
+
+        train_loader = DataLoader(
+            trainset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+        )
+        test_loader = DataLoader(
+            testset,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+        )
 
     elif args.dataset == "css_rival10":
         from utils import CSS_Rival_Dataset
@@ -935,7 +972,7 @@ def build_pcbm_model(
     return model
 
 
-def load_model_pipeline(args: argparse.Namespace):
+def load_model_pipeline(args: argparse.Namespace, load_pcbm:bool = True):
     concept_bank = load_concept_bank(args)
     backbone = load_backbone(args)
     dataset = load_dataset(args, backbone.preprocess)
@@ -947,11 +984,15 @@ def load_model_pipeline(args: argparse.Namespace):
         backbone=backbone.backbone_model,
     )
 
-    pcbm_model = build_pcbm_model(
-        args, model_context=model_context, num_of_classes=dataset.idx_to_class.__len__()
-    )
+    if load_pcbm:
+        pcbm_model = build_pcbm_model(
+            args, model_context=model_context, num_of_classes=dataset.idx_to_class.__len__()
+        )
+        return concept_bank, backbone, dataset, model_context, pcbm_model
+        
+        
 
-    return concept_bank, backbone, dataset, model_context, pcbm_model
+    return concept_bank, backbone, dataset, model_context
 
 
 def create_logger(log_file=None, rank=0, log_level=logging.INFO):
@@ -971,7 +1012,7 @@ def create_logger(log_file=None, rank=0, log_level=logging.INFO):
     return logger
 
 
-def evaluzate_accuracy(
+def evaluate_accuracy(
     args,
     batch_X: torch.Tensor,
     batch_Y: torch.Tensor,

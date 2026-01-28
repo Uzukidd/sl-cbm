@@ -11,7 +11,7 @@ from pcbm.concepts import ConceptBank
 
 from typing import Tuple, Callable, Union, Optional
 
-from utils.model_utils import CBM_Net, SimPool, ResNetBottom, CAV, NECLinear
+from utils.model_utils import CBM_Net, SimPool, ResNetBottom, CAV, NECLinear, GlobalPooling
 
 
 # SimPooling Semi-Supervised (SPSS) VL-CBM
@@ -25,7 +25,9 @@ class spss_pcbm(CBM_Net):
         normalizer,
         concept_bank: ConceptBank,
         backbone: Union[open_clip_model_CLIP, ResNetBottom],
+        pooling_type: str,
         concept_softmax: bool = False,
+
         num_of_classes: int = 10,
     ):
         super().__init__()
@@ -42,13 +44,16 @@ class spss_pcbm(CBM_Net):
         self.num_of_concepts = self.concept_bank.concept_names.__len__()
         self.num_of_classes = num_of_classes
 
-        self.simpool = SimPool(
-            self.num_of_concepts,
-            num_heads=1,
-            qkv_bias=False,
-            qk_scale=None,
-            use_beta=True,
-        )
+        if pooling_type == "simpool":
+            self.simpool = SimPool(
+                self.num_of_concepts,
+                num_heads=1,
+                qkv_bias=False,
+                qk_scale=None,
+                use_beta=True,
+            )
+        else:
+            self.simpool = GlobalPooling(pooling_type)
 
         self.CAV_layer = CAV(
             concept_bank.vectors,

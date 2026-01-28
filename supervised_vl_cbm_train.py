@@ -54,7 +54,7 @@ def config():
     parser.add_argument("--pcbm-ckpt", type=str)
     parser.add_argument("--pcbm-arch", default="spss_pcbm", type=str)
 
-    parser.add_argument("--dataset", default="spss_rival10", type=str)
+    parser.add_argument("--dataset", default="supervised_rival10", type=str)
     parser.add_argument("--target-dataset", default="rival10_full", type=str)
 
     parser.add_argument("--device", default=0, type=int)
@@ -103,45 +103,20 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
 
     ###Iterating over data loader
     for i, data in tqdm(enumerate(train_data_loader)):
-        images, class_labels, concept_labels, use_concept_labels = (
-            None,
-            None,
-            None,
-            None,
-        )
-        if data.__len__() == 3:
-            images, class_labels, concept_labels = data
+        images, class_labels, concept_labels, attr_masks = data
 
-            if isinstance(concept_labels, list):
-                concept_labels = (
-                    torch.stack(concept_labels).permute((1, 0)).to(class_labels.device)
-                )
-        else:
-            images, class_labels, concept_labels, use_concept_labels = data
         # Loading data and labels to device
         images = images.squeeze().to(device)
         class_labels = class_labels.squeeze().to(device)
         concept_labels = concept_labels.squeeze().to(device)
-        if use_concept_labels is not None:
-            use_concept_labels = use_concept_labels.squeeze().to(device)
-
-        if class_labels.size().__len__() == 2:
-            class_labels = torch.reshape(
-                class_labels, (class_labels.shape[0] * 2, 1)
-            ).squeeze()
-            concept_labels = torch.reshape(
-                concept_labels, (concept_labels.shape[0] * 2, concept_labels.shape[-1])
-            )
-            if use_concept_labels is not None:
-                use_concept_labels = torch.reshape(
-                    use_concept_labels, (use_concept_labels.shape[0] * 2, 1)
-                ).squeeze()
+        attr_masks = attr_masks[:, :-1].squeeze().to(device) # torch.Size([B, C, 3, 224, 224])
 
         # Reseting Gradients
         optimizer.zero_grad()
-        # import pdb;pdb.set_trace()
+
         # Forward
         class_predictions, concept_predictions, token_concepts = model(images)
+        # token_concepts [B, 14 * 14, C]
 
         # Calculating Loss
         loss_pkg = loss_fn(
@@ -149,6 +124,7 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
             class_predictions,
             class_labels,
             concept_labels,
+            attr_masks,
             token_concepts,
         )
         _loss = sum(loss_pkg)
@@ -214,28 +190,12 @@ def main(args: argparse.Namespace):
     if isinstance(model, spss_pcbm):
         model.concept_softmax = args.use_concept_softmax
 
-    if args.loss == "spss":
-        loss_func = spss_loss(
-            lambda1=args.lambda1,
-            lambda2=args.lambda2,
-            lambda3=args.lambda3,
-            log_sapce=args.use_concept_softmax,
-        )
-    # elif args.loss == "supervised_loss":
-    #     loss_func = supervised_loss(
-    #         lambda1=args.lambda1,
-    #         lambda2=args.lambda2,
-    #         lambda3=args.lambda3,
-    #         log_sapce=args.use_concept_softmax,
-    #     )
-    elif args.loss == "cspss":
-        loss_func = cspss_loss(
-            lambda1=args.lambda1,
-            lambda2=args.lambda2,
-            lambda3=args.lambda3,
-            lambda4=args.lambda4,
-            log_sapce=args.use_concept_softmax,
-        )
+    loss_func = supervised_loss(
+        lambda1=args.lambda1,
+        lambda2=args.lambda2,
+        lambda3=args.lambda3,
+        log_sapce=args.use_concept_softmax,
+    )
 
     # args.logger.info(f"data size: {args.data_size}")
     args.logger.info(f"\n\n\n\t Dataset size:{dataset.trainset.__len__()}")

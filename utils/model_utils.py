@@ -324,6 +324,38 @@ def show_gradient(grad, parent, name=""):
 
     return grad
 
+class GlobalPooling(nn.Module):
+    def __init__(self, pooling_type: str = "max") -> None:
+        super().__init__()
+        self.pooling_type = pooling_type # [max, mean]
+    
+    def forward(
+        self,
+        x: torch.Tensor,
+        _: Optional[torch.Tensor]= None,
+        return_attn_map: bool = False,
+    ):
+        """
+                x: [B, H * W, C]
+                _: default
+                return_attn_map: default
+
+            Return:
+                pooled_token: [B, C]
+        """
+        pooled_token = None
+        if self.pooling_type == 'max':
+            pooled_token = x.max(dim=1).values
+        elif self.pooling_type == 'mean':
+            pooled_token = x.mean(dim=1)
+        else:
+            raise NotImplementedError
+        
+        if return_attn_map:
+            return pooled_token, x
+
+        return pooled_token
+
 
 class SimPool(nn.Module):
     SIMPOOL_DEBUG_FLAG = False

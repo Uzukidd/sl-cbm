@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 from typing import Callable
 
@@ -93,6 +94,60 @@ class trinity_loss(nn.Module):
         contrasive_loss = self.clip_loss(torch.reshape(predicted_concepts,(int(bs_2/2),2,dim)))
         classification_loss, concept_loss = self.ss_loss(predicted_concepts, class_logits, class_label, concept_label, use_concept_labels)
         return contrasive_loss, classification_loss, concept_loss
+    
+class supervised_loss(nn.Module):
+    def __init__(self, lambda1:float, 
+                 lambda2:float, 
+                 lambda3:float,
+                 log_sapce:bool):
+        super().__init__()
+        self.ce_loss = nn.CrossEntropyLoss()
+        self.l1_loss = nn.L1Loss()
+        self.pe_loss = probability_entropy_loss()
+        self.scale = 1.0/1e-4
+
+        self.lambda1 = lambda1
+        self.lambda2 = lambda2
+        self.lambda3 = lambda3
+        self.log_sapce = log_sapce
+
+    def forward(self, predicted_concepts:torch.Tensor, 
+                class_logits:torch.Tensor, 
+                class_label:torch.Tensor, 
+                concept_label:torch.Tensor, 
+                attr_masks:torch.Tensor, 
+                token_concepts:torch.Tensor):
+        
+        def _normalize(m: torch.Tensor, eps:float = 1e-6):
+            min_val = torch.amin(m, dim=(1, 2, 3)).view(-1, 1, 1, 1).detach()
+            max_val = torch.amax(m, dim=(1, 2, 3)).view(-1, 1, 1, 1).detach()
+            # max_val[max_val < eps] = eps
+            m = (m - min_val) / (max_val - min_val)
+
+            return m
+        
+        _grid = int(np.round(np.sqrt(token_concepts.size(-2))))
+        token_concepts_masks = token_concepts.view(token_concepts.size(0), _grid, _grid, -1).permute(0, 3, 1, 2)
+        token_concepts_masks = F.interpolate(token_concepts_masks, size=(attr_masks.size(-2), attr_masks.size(-1)), mode = "bicubic")
+        token_concepts_masks = _normalize(token_concepts_masks)
+        
+        binarized_attr_masks = attr_masks.max(dim=2).values
+        classification_loss = self.ce_loss(class_logits, class_label)
+
+        normalized_predicted_concepts = F.sigmoid(predicted_concepts)
+
+        concept_loss = self.scale * self.l1_loss(normalized_predicted_concepts, concept_label)
+        entropy_loss = self.pe_loss(token_concepts, self.log_sapce)
+        
+        mask_loss = F.mse_loss(token_concepts_masks, binarized_attr_masks)
+        
+        if torch.any(torch.isnan(concept_loss)):
+            import pdb; pdb.set_trace()
+
+        # entropy_loss = predicted_concepts.new_zeros(1)
+
+        # backbone -> concept -> classifier
+        return self.lambda1 * classification_loss, self.lambda2 * concept_loss, self.lambda3 * entropy_loss,  100 * mask_loss
 
 class spss_loss(nn.Module):
     def __init__(self, lambda1:float, 
@@ -114,6 +169,7 @@ class spss_loss(nn.Module):
                 class_logits:torch.Tensor, 
                 class_label:torch.Tensor, 
                 concept_label:torch.Tensor, 
+                concept_mask:torch.Tensor, 
                 token_concepts:torch.Tensor):
 
         classification_loss = self.ce_loss(class_logits, class_label)
@@ -155,6 +211,7 @@ class cspss_loss(nn.Module):
                 class_logits:torch.Tensor, 
                 class_label:torch.Tensor, 
                 concept_label:torch.Tensor, 
+                concept_mask:torch.Tensor, 
                 token_concepts:torch.Tensor):
 
         bs_2, dim = predicted_concepts.shape

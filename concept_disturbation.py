@@ -180,10 +180,10 @@ def main(args):
                                 concept_selecting_func=getattr(concept_selecting_funcs, args.cocnept_selecting_func),
                                 attack_func=getattr(adversarial_attack_funcs, args.attack_func))
         
-        accuracy_ori.append(evaluzate_accuracy(args, batch_X,
+        accuracy_ori.append(evaluate_accuracy(args, batch_X,
                                 batch_Y, 
                                 model_context))
-        accuracy_adv.append(evaluzate_accuracy(args, batch_X_disturb,
+        accuracy_adv.append(evaluate_accuracy(args, batch_X_disturb,
                                 batch_Y, 
                                 model_context))
         

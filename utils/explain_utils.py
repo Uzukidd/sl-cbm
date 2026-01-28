@@ -441,8 +441,9 @@ def concepts_adi(
     avg_gain = torch.maximum(O - Y, torch.zeros_like(Y)) / (1 - Y)  # [K, ]
     avg_inc = torch.gt(O, Y)  # [K, ]
 
-    concepts_adi.total += 1
-    concepts_adi.nan += avg_gain.isnan().any().float().item()
+    concepts_adi.total += Y.numel()
+    # concepts_adi.nan += avg_gain.isnan().any().float().item()
+    concepts_adi.nan += ((1 - Y) == 0).int().sum()
     
     if reduction == "mean":
         return avg_drop.nanmean(), avg_inc.float().nanmean(), avg_gain.nanmean()

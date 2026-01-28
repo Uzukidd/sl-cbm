@@ -53,7 +53,7 @@ class celebA_features:
         "Wearing Lipstick",
         "Wearing Necklace",
         "Wearing Necktie",
-        "Young"]
+        "Young",]
     
     smiling_concepts = [
         "Bags Under Eyes",
@@ -62,8 +62,7 @@ class celebA_features:
         "Rosy Cheeks",
         "Double Chin",
         "Arched Eyebrows",
-        "Narrow Eyes",
-    ]
+        "Narrow Eyes",]
     
     smiling_concepts_indices = [3, 19, 21, 29, 14, 1, 23]
     
