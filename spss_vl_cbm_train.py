@@ -149,6 +149,7 @@ def train_one_epoch(train_data_loader, model, optimizer, loss_fn, device):
             class_predictions,
             class_labels,
             concept_labels,
+            None,
             token_concepts,
         )
         _loss = sum(loss_pkg)
