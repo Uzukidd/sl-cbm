@@ -30,6 +30,12 @@ pip install git+https://github.com/uzukidd/pcbm-module.git
 - [RIVAL10](https://github.com/uzukidd/RIVAL10): minimalist RIVAL10 dataset (fork of [mmoayeri/RIVAL10](https://github.com/mmoayeri/RIVAL10)).
 - [pcbm-module](https://github.com/uzukidd/pcbm-module): PCBM helper package.
 
+## Download Checkpoints and Concept Banks
+
+Prepackaged archives for checkpoints and concept banks are available on Google Drive:
+
+- `concept_banks.zip` and `data_ckpt.zip`: [Download link](https://drive.google.com/drive/folders/1ZkWL_zJB_j2kI42sqFSq1rGhevHc-cVi?usp=sharing)
+
 ## Quick Start
 
 Reproduce key experiments on the RIVAL-10 dataset
