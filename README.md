@@ -11,6 +11,7 @@ The high-level framework of SL-CBM is illustrated below:
 ![SL-CBM framework](assets/images/CBM_framework.svg)
  Given an input image $\mathbf{x}$, a concept set, the fixed concept and image encoders extract concept and image features, and an image feature summary. Projecting the image summary onto concept features yields a similarity vector. A $1 \times 1$ convolution generates concept saliency maps $S_\mathbf{c}$, which, with the similarity vector, are refined via cross-attention into  $f(\mathbf{x})$. preserving locality and concept relevance. A classifier then produces logit $g(f(\mathbf{x}))$, and class saliency map $S_l$ is computed by weighting $S_\mathbf{c}$ with the class-specific FCL weight $\mathbf{w}_l$.
 
+
 ## Installation
 
 Conda is required. We recommend creating the environment from the provided `environment.yml` (Python 3.12, PyTorch 2.6+cu124, and all pip dependencies):
@@ -30,12 +31,40 @@ pip install git+https://github.com/uzukidd/pcbm-module.git
 - [RIVAL10](https://github.com/uzukidd/RIVAL10): minimalist RIVAL10 dataset (fork of [mmoayeri/RIVAL10](https://github.com/mmoayeri/RIVAL10)).
 - [pcbm-module](https://github.com/uzukidd/pcbm-module): PCBM helper package.
 
+## Dataset Configuration Guide
+Configure the dataset paths in in `utils/constants.py`
+
+```python
+class dataset_constants:
+    ...
+    CIFAR10_DIR:str = ...
+    CIFAR100_DIR:str = ...
+    CUB_DATA_DIR:str = ...
+    CUB_PROCESSED_DIR:str = ...
+    CELEBA_DIR:str = ...
+    RIVAL10_DIR:str = ...
+    ...
+```
+
+| Dataset | Link |
+| :--- | :--- 
+| **CIFAR-10 / 100** | No manual download needed; the code will auto-download via `torchvision` to the `data/` folder. |
+| **CUB-200-2011** | [https://www.vision.caltech.edu/datasets/cub_200_2011/](https://www.vision.caltech.edu/datasets/cub_200_2011/) |
+| **CelebA** | [https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html](https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html) |
+| **RIVAL10** | [https://github.com/mmoayeri/RIVAL10](https://github.com/mmoayeri/RIVAL10) |
+---
 ## Download Checkpoints and Concept Banks
 
-Prepackaged archives for checkpoints and concept banks are available on Google Drive:
+Model assets and prepackaged archives are hosted on Google Drive. Please follow the steps below to set up your environment:
 
-- `concept_banks.zip` and `data_ckpt.zip`: [Download link](https://drive.google.com/drive/folders/1ZkWL_zJB_j2kI42sqFSq1rGhevHc-cVi?usp=sharing)
+1. **Download**: Obtain the following files from this [Google Drive Folder](https://drive.google.com/drive/folders/1ZkWL_zJB_j2kI42sqFSq1rGhevHc-cVi?usp=sharing):
+   * `concept_banks.zip`
+   * `data_ckpt.zip`
 
+2. **Extract**: Unzip both archives into the **project root directory** (`.`):
+   ```bash
+   unzip concept_banks.zip -d .
+   unzip data_ckpt.zip -d .
 ## Quick Start
 
 Reproduce key experiments on the RIVAL-10 dataset
