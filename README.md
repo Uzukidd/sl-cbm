@@ -93,10 +93,75 @@ Reproduce key experiments on the RIVAL-10 dataset
   bash scripts/RIVAL_10/spss_vl_cbm/spss_vl_cbm_train_simple_concepts_with_lambda.sh 1.0 1.0 5.0
   ```
 
+## Intervention Evaluation
+
+SL-CBM evaluates concept intervention strategies to measure how effectively correcting predicted concepts reduces task error. Given an image `x` with K ground-truth concept labels `c*`, the model predicts concept activations `c_hat = f(x)`. During intervention, we progressively replace top-ranked predicted concepts with mapped ground-truth values and measure the resulting classification task error.
+
+Five intervention strategies are implemented in `utils/intervene_utils.py`:
+
+### Random (`rand`)
+
+Randomly shuffles the intervention order as a lower-bound baseline.
+
+```
+score_k ~ Uniform
+```
+
+### Uncertainty-based Concept Prioritization (`ucp`)
+
+Prioritizes concepts for which the model's prediction is closest to 0.5 (maximum uncertainty).
+
+```
+score_k = 1 / |c_hat_k - 0.5|^2
+```
+
+### Largest Correction Priority (`lcp`)
+
+Prioritizes concepts where the model's prediction deviates most from the ground-truth label.
+
+```
+score_k = |c_hat_k - c*_k|^2
+```
+
+### Concept Contribution to class Prediction (`cctp`)
+
+Prioritizes concepts that are both important to the classifier and highly activated. The importance of concept k is measured by the sum of absolute weights connecting it to all classes in the final linear layer W.
+
+```
+score_k = (sum_y |W_k,y|) * c_hat_k
+```
+
+### Attribution-Guided (`ag`)
+
+Leverages spatial attribution maps to determine intervention order. For each concept k, an attribution map A_k in R^{H x W} is computed and normalized to [0, 1]. The map is used to mask the input image:
+
+```
+x_masked_k = A_k * x
+```
+
+The concept prediction gain is then computed as:
+
+```
+gain_k = f_k(x_masked_k) - f_k(x)
+```
+
+Concepts are intervened in ascending order of gain_k - a low (negative) gain indicates the attribution map faithfully localized the concept's supporting region, making its prediction most worthy of correction.
+
+### Usage
+
+Enable intervention evaluation by passing the `--intervention` flag to any training or evaluation script:
+
+```bash
+python spss_vl_cbm_train.py --intervention --other_args ...
+```
+
+For each method, the evaluation loop:
+1. Computes the intervention order for the entire test set.
+2. Progressively replaces predicted concepts with mapped ground-truth values (using per-sample quantile-based mapping at the 5th and 95th percentiles).
+3. Records the classification task error after each step.
+4. Plots a comparative error-vs-intervention-count curve saved to `evaluations/intervention_taskerror.pt`.
+
 ## Citation
-
-If you find this work useful in your research, please cite:
-
 ```bibtex
 @misc{zhang2026slcbm,
   title         = {SL-CBM: Enhancing Concept Bottleneck Models with Semantic Locality for Better Interpretability},
@@ -107,8 +172,6 @@ If you find this work useful in your research, please cite:
   primaryClass  = {cs.AI},
   url           = {https://arxiv.org/abs/2601.12804}
 }
-```
-
 ## License
 
 This project is released under the [MIT License](LICENSE).
